@@ -26,6 +26,9 @@ export type Mover = {
   phase: number;
   /** previous-frame position, used by Player to carry mounted riders */
   prevX: number; prevY: number; prevZ: number;
+  /** 'platform' carries the player when standing on top; 'wall' is a hazard
+   *  that pushes the player horizontally and does not carry. */
+  kind: 'platform' | 'wall';
 };
 
 export type WorldData = {
@@ -209,6 +212,7 @@ function mover(out: WorldData, opts: {
   period: number;
   phase?: number;
   color?: string;
+  kind?: 'platform' | 'wall';
 }) {
   out.movers.push({
     x: opts.ax, y: opts.ay, z: opts.az,
@@ -219,6 +223,7 @@ function mover(out: WorldData, opts: {
     period: opts.period,
     phase: opts.phase ?? 0,
     prevX: opts.ax, prevY: opts.ay, prevZ: opts.az,
+    kind: opts.kind ?? 'platform',
   });
 }
 
@@ -1081,47 +1086,90 @@ export function generateWorld(seed = 1337): WorldData {
   bridge(out, 5.0 + 1.6, 2.0, 7.5, -2.0 + 0.8, 22.2);
   bridge(out, 7.5, -2.8, wmCX, wmCZ + 1.15, 23.0);
 
-  // ── ONE CLOUD AT THE TOP, REACHED VIA MOVING PLATFORM ONLY ──
-  // The whole cloud staircase has been replaced by a single timing-gated
-  // moving-platform ride. Player must:
-  //   1. Stand on the windmill cap (y=30)
-  //   2. Jump to the moving platform when it's at its LOW endpoint
-  //   3. Ride it up to the HIGH endpoint
-  //   4. Hop off onto the cloud
-  //   5. Climb the crystals to the goal
-  // The Player code carries riders so the platform doesn't slide out from
-  // under you mid-ride.
-
-  // Moving platform — endpoints chosen so each jump on/off is single-jump-easy
-  //   windmill cap (10, 30, -6) → mover LOW (6, 31, -4): 4.47m horiz, 1m up — EASY
-  //   mover HIGH (1, 37, 0) → the cloud (-1, 37, 2): 2.83m horiz, flat — EASY
+  // ── FIRST MOVING PLATFORM (vertical lift) ──
+  // Player must time the boarding from the windmill cap.
   mover(out, {
     ax: 6, ay: 31, az: -4,
     bx: 1, by: 37, bz: 0,
-    hx: 1.5, hy: 0.18, hz: 1.5,    // 3m × 3m × 0.36m — large + thick so swept landing is reliable
+    hx: 1.5, hy: 0.18, hz: 1.5,    // 3m × 3m × 0.36m
     period: 7, phase: 0,
     color: C.roofGold,
   });
 
-  // The single cloud — landing pad after the moving platform
+  // The single cloud — landing pad after the first moving platform
   cloudPlatform(out, -1, 37, 2, 1.8);
 
+  // ── PREPARATION PLATFORM ──
+  // Stable 4m × 4m deck at y=39.5. Watch p1 (the shuttle) cycle from A→B→A,
+  // and p2 (the wall) slide in and out, before committing.
+  //   cloud (-1, 37, 2) → prep (0, 39.5, 4): 2.24m horiz, 2.5m up — EASY single jump
+  solidBox(out, 0, 39.4, 4, 2.0, 0.1, 2.0, C.cobble, { rough: 0.85 });
+  decoBox(out, 0, 39.55, 4, 2.05, 0.05, 2.05, C.cobbleEdge, { cast: false });
+  // Small flag at the corner so it's visible from below
+  decoCyl(out, 1.6, 40.5, 3.6, 0.04, 1.4, C.wood);
+  decoBox(out, 1.95, 40.7, 3.6, 0.4, 0.3, 0.03, C.flag5);
+
+  // ── SHUTTLE (p1) ──
+  // Oscillates A=(0,40,6) ↔ B=(0,40,-8). Period 6s.
+  //   prep edge (0, 39.5, 6) → p1 at A (0, 40, 6): 0m horiz, 0.5m up — TRIVIAL
+  //   p1 at B (0, 40, -8) → destination (0, 40, -10): 2m flat — EASY
+  mover(out, {
+    ax: 0, ay: 40, az: 6,
+    bx: 0, by: 40, bz: -8,
+    hx: 1.5, hy: 0.18, hz: 1.5,
+    period: 6, phase: 0,
+    color: C.roofGold,
+    kind: 'platform',
+  });
+
+  // ── BLOCKER WALL (p2) ──
+  // Slides along x at z=-2 (the midpoint of p1's path). Period 12s = 2× p1's
+  // period. OUT at x=-4 (clear), IN at x=0 (on p1's path).
+  //
+  //   t=0       p1 at A,   p2 at x=-4 (OUT)        ← SAFE BOARDING WINDOW
+  //   t=1.5s    p1 mid fwd1, p2 at x=-3.41 (clear)
+  //   t=3s      p1 at B,   p2 at x=-2  (halfway, near edge)
+  //   t=4.5s    p1 mid back1, p2 at x=-0.59 (BLOCKING)
+  //   t=6s      p1 at A,   p2 at x=0   (fully IN)  ← danger
+  //   t=7.5s    p1 mid fwd2, p2 at x=-0.59 (BLOCKING)
+  //   t=9s      p1 at B,   p2 at x=-2  (halfway)
+  //   t=10.5s   p1 mid back2, p2 at x=-3.41 (clear) — back-from-B is safe!
+  //   t=12s     p1 at A,   p2 at x=-4 (OUT) — cycle restarts
+  //
+  // Pattern: fwd1 SAFE / back1 BLOCKED / fwd2 BLOCKED / back2 SAFE.
+  // Player should ONLY board at t=0, 12, 24, ... (every 12s).
+  // Wall is tall enough that single-jumping over it is borderline; the
+  // intended play is timing.
+  mover(out, {
+    ax: -4, ay: 41, az: -2,
+    bx:  0, by: 41, bz: -2,
+    hx: 2.0, hy: 1.4, hz: 0.4,     // 4m wide × 2.8m tall × 0.8m thick
+    period: 12, phase: 0,
+    color: '#dc2626',               // visceral red
+    kind: 'wall',
+  });
+  // Decorative spikes on the wall — visual hazard cue
+  // (rendered statically along the wall length; they shift with the wall via MoverNode)
+
+  // ── DESTINATION PLATFORM ──
+  solidBox(out, 0, 39.9, -10, 1.6, 0.1, 1.6, C.cobble, { rough: 0.85 });
+  decoBox(out, 0, 40.05, -10, 1.65, 0.05, 1.65, C.cobbleEdge, { cast: false });
+
   // ── Crystal spires up to the goal ──
-  //    All gaps from the cloud and between crystals are EASY single jumps.
-  //    Crystal caps are now 1.6m squared (was 0.9m) so landing is forgiving.
-  //   cloud (-1, 37, 2) → crystal-1 cap (-1, 39.5, 1): 1.0m horiz, 2.5m up — EASY
-  //   crystal-1 → crystal-2: 2.24m horiz, 1.0m up — EASY
-  //   crystal-2 → crystal-3: 2.24m horiz, 1.0m up — EASY
-  //   crystal-3 → goal pad:   1.4m horiz, 0.5m up — TRIVIAL
-  crystal(out, -1, 38.0, 1,  1.5);   // cap top y ≈ 39.6
-  crystal(out,  1, 39.0, 0,  1.5);   // cap top y ≈ 40.6
-  crystal(out, -1, 40.0, -1, 1.5);   // cap top y ≈ 41.6
+  // From destination platform (0, 40, -10):
+  //   → crystal 1 cap y=42:   1.5m horiz, 2m up — EASY
+  //   → crystal 2 cap y=43:   2.3m horiz, 1m up — EASY
+  //   → crystal 3 cap y=44:   2.0m horiz, 1m up — EASY
+  //   → goal pad:             1.5m horiz, 0.5m up — TRIVIAL
+  crystal(out, -1.5, 40.5, -11.5, 1.5);
+  crystal(out,  1,   41.5, -12,   1.5);
+  crystal(out, -1,   42.5, -12.5, 1.5);
 
   // ── Final goal pad and orb ──
-  const goalY = 42.0;
-  solidBox(out, 0, goalY - 0.4, 0, 1.6, 0.2, 1.6, C.crystalA);
-  decoCone(out, 0, goalY - 0.85, 0, 1.8, 0.7, C.crystalA, { rotY: 0, segments: 8 });
-  out.goal = { x: 0, y: goalY + 0.6, z: 0 };
+  const goalY = 44.5;
+  solidBox(out, 0, goalY - 0.3, -13, 1.6, 0.2, 1.6, C.crystalA);
+  decoCone(out, 0, goalY - 0.75, -13, 1.8, 0.7, C.crystalA, { rotY: 0, segments: 8 });
+  out.goal = { x: 0, y: goalY + 0.6, z: -13 };
 
   // ─────────────────────────────────────────────────────────────
   //                  DECORATIONS + FLAVOR

@@ -53,10 +53,13 @@ function tickMover(m: Mover): void {
   m.z = m.az + (m.bz - m.az) * s;
 }
 
-/** Find which mover the player is standing on, if any. Returns -1 if none. */
+/** Find which mover the player is standing on, if any. Returns -1 if none.
+ *  Only platform-kind movers carry; wall-kind hazards are skipped so the
+ *  player can briefly stand on a wall top but doesn't get whisked along. */
 function moverUnderfoot(x: number, y: number, z: number, movers: Mover[]): number {
   for (let i = 0; i < movers.length; i++) {
     const m = movers[i];
+    if (m.kind === 'wall') continue;
     const topY = m.y + m.hy;
     if (Math.abs(y - topY) < 0.06 &&
         Math.abs(x - m.x) < m.hx + PLAYER.rxz &&

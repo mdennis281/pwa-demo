@@ -176,17 +176,49 @@ function MoverNode({ mover }: { mover: Mover }) {
     ref.current.position.y = mover.ay + (mover.by - mover.ay) * s;
     ref.current.position.z = mover.az + (mover.bz - mover.az) * s;
   });
+  const isWall = mover.kind === 'wall';
   return (
     <group ref={ref} position={[mover.x, mover.y, mover.z]}>
       <mesh castShadow receiveShadow>
         <boxGeometry args={[mover.hx * 2, mover.hy * 2, mover.hz * 2]} />
-        <meshStandardMaterial color={mover.color} roughness={0.7} />
+        <meshStandardMaterial
+          color={mover.color}
+          roughness={isWall ? 0.4 : 0.7}
+          emissive={isWall ? '#dc2626' : '#000000'}
+          emissiveIntensity={isWall ? 0.25 : 0}
+        />
       </mesh>
-      {/* Glowing edge so the player can spot it from far away */}
-      <mesh position={[0, mover.hy + 0.04, 0]}>
-        <boxGeometry args={[mover.hx * 2 + 0.05, 0.08, mover.hz * 2 + 0.05]} />
-        <meshStandardMaterial color="#fde047" emissive="#facc15" emissiveIntensity={0.8} />
-      </mesh>
+      {isWall ? (
+        <>
+          {/* Hazard stripes on both wide faces */}
+          {[-1, 1].map((side) => (
+            <group key={side}>
+              {Array.from({ length: 5 }).map((_, i) => {
+                const w = (mover.hx * 2) / 5;
+                const x = -mover.hx + w * (i + 0.5);
+                const col = i % 2 === 0 ? '#fde047' : '#0f172a';
+                return (
+                  <mesh key={i} position={[x, 0, side * (mover.hz + 0.01)]}>
+                    <boxGeometry args={[w * 0.9, mover.hy * 1.8, 0.02]} />
+                    <meshStandardMaterial color={col} emissive={col} emissiveIntensity={0.15} />
+                  </mesh>
+                );
+              })}
+            </group>
+          ))}
+          {/* Pulsing red top edge so it's clearly threatening */}
+          <mesh position={[0, mover.hy + 0.05, 0]}>
+            <boxGeometry args={[mover.hx * 2 + 0.05, 0.1, mover.hz * 2 + 0.05]} />
+            <meshStandardMaterial color="#ef4444" emissive="#dc2626" emissiveIntensity={1.0} />
+          </mesh>
+        </>
+      ) : (
+        /* Yellow glowing edge for ridable platforms */
+        <mesh position={[0, mover.hy + 0.04, 0]}>
+          <boxGeometry args={[mover.hx * 2 + 0.05, 0.08, mover.hz * 2 + 0.05]} />
+          <meshStandardMaterial color="#fde047" emissive="#facc15" emissiveIntensity={0.8} />
+        </mesh>
+      )}
     </group>
   );
 }

@@ -16,13 +16,13 @@ export default function CharacterPicker({
         <Canvas camera={{ position: [0, 1.6, 3], fov: 35 }}>
           <ambientLight intensity={0.6} />
           <directionalLight position={[3, 5, 2]} intensity={1.2} />
-          <group position={[0, -0.8, 0]}>
+          <group position={[0, -1.05, 0]}>
             <Character variant={value} state="idle" />
           </group>
           <OrbitControls
             enablePan={false}
             enableZoom={false}
-            target={[0, 0.4, 0]}
+            target={[0, 0.1, 0]}
             autoRotate
             autoRotateSpeed={2.5}
           />
@@ -49,6 +49,7 @@ export default function CharacterPicker({
                 />
                 <span className="text-sm font-medium truncate">{c.name}</span>
               </div>
+              <div className="text-[10px] text-slate-400 italic truncate">{c.tagline}</div>
               <div className="text-[10px] uppercase tracking-wider text-slate-500">
                 {c.body} · {c.accessory}
               </div>

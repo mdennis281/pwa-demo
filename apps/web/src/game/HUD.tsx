@@ -66,9 +66,9 @@ export default function HUD({
       {/* Bottom-center: controls hint */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-xs text-slate-300 bg-slate-950/60 backdrop-blur border border-slate-800 rounded-lg px-3 py-1.5 hidden md:block">
         {pointerLocked ? (
-          <>WASD · SPACE jump (×2 for double) · hold for higher hop · mouse look · ESC release</>
+          <>WASD · SPACE jump (×2 for double) · hold for higher hop · mouse look · ESC release · <span className="text-amber-300">H wave</span> · <span className="text-pink-300">P party</span></>
         ) : (
-          <>click canvas to capture mouse · WASD / SPACE / mouse</>
+          <>click canvas to capture mouse · WASD / SPACE / mouse · H wave · P party</>
         )}
       </div>
     </div>
