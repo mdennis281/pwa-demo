@@ -13,7 +13,9 @@ import pushRoute from './routes/push.js';
 webpush.setVapidDetails(env.VAPID_SUBJECT, env.VAPID_PUBLIC_KEY, env.VAPID_PRIVATE_KEY);
 
 const app = express();
-app.use(cors({ origin: env.WEB_ORIGIN, credentials: true }));
+// Dev/demo mode: accept connections from any origin so other devices on
+// the LAN (phones, tablets) can hit the API.
+app.use(cors({ origin: true }));
 app.use(express.json({ limit: '1mb' }));
 
 app.get('/api/health', (_req, res) => res.json({ ok: true, uptime: process.uptime() }));
@@ -39,9 +41,12 @@ import('node:fs').then(({ existsSync }) => {
 });
 
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: env.WEB_ORIGIN, credentials: true } });
+const io = new Server(server, { cors: { origin: true } });
 attachSocket(io);
 
-server.listen(env.PORT, () => {
-  console.log(`[api] listening on http://localhost:${env.PORT}`);
+server.listen(env.PORT, env.HOST, () => {
+  console.log(`[api] listening on http://${env.HOST}:${env.PORT}`);
+  if (env.HOST === '0.0.0.0') {
+    console.log('[api] reachable from any device on this LAN — find your machine\'s IP');
+  }
 });

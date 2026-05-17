@@ -61,7 +61,8 @@ export function stepPlayer(opts: {
     }
   }
 
-  // ── vertical sweep ──
+  // ── vertical sweep (swept against every box top/bottom to prevent tunneling) ──
+  const prevFeetY = feetY;
   feetY += vy * opts.dt;
   let grounded = false;
 
@@ -71,6 +72,9 @@ export function stepPlayer(opts: {
     grounded = true;
   }
 
+  // Find the highest platform top we crossed downward; that's where we land.
+  let bestLandY = -Infinity;
+  let bestCeilY = Infinity;
   for (const b of opts.boxes) {
     const topY = b.y + b.hy;
     const botY = b.y - b.hy;
@@ -79,15 +83,26 @@ export function stepPlayer(opts: {
       Math.abs(feetZ - b.z) < b.hz + PLAYER.rxz;
     if (!overlapsXZ) continue;
 
-    const headYNow = feetY + PLAYER.height;
-    if (vy <= 0 && feetY < topY && feetY > topY - 0.7) {
-      feetY = topY;
-      vy = 0;
-      grounded = true;
-    } else if (vy > 0 && headYNow > botY && headYNow < botY + 0.6) {
-      feetY = botY - PLAYER.height;
-      vy = 0;
+    // Falling: did we cross this box's top going down?
+    if (vy <= 0 && prevFeetY >= topY - 1e-3 && feetY <= topY) {
+      if (topY > bestLandY) bestLandY = topY;
+      continue;
     }
+    // Rising: did our head cross this box's bottom going up?
+    const prevHeadY = prevFeetY + PLAYER.height;
+    const headYNow = feetY + PLAYER.height;
+    if (vy > 0 && prevHeadY <= botY + 1e-3 && headYNow > botY) {
+      if (botY < bestCeilY) bestCeilY = botY;
+    }
+  }
+
+  if (bestLandY > -Infinity) {
+    feetY = bestLandY;
+    vy = 0;
+    grounded = true;
+  } else if (bestCeilY < Infinity) {
+    feetY = bestCeilY - PLAYER.height;
+    vy = 0;
   }
 
   return { feetX, feetY, feetZ, vx, vy, vz, grounded };

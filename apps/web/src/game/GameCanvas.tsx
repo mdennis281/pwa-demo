@@ -65,12 +65,23 @@ export default function GameCanvas({
     <div className="fixed inset-0 bg-slate-950 z-40">
       <Canvas
         shadows
-        camera={{ position: [10, 6, 10], fov: 65 }}
+        camera={{ position: [10, 6, 10], fov: 65, near: 0.1, far: 5000 }}
         onCreated={({ gl }) => setCanvasEl(gl.domElement)}
       >
         <Suspense fallback={null}>
-          <fog attach="fog" args={['#cfe6ff', 70, 320]} />
-          <Sky sunPosition={[40, 18, 50]} turbidity={3} rayleigh={1.5} mieCoefficient={0.003} mieDirectionalG={0.85} distance={4000} />
+          {/* Hard background color so even if Sky doesn't render, the horizon is sky-blue */}
+          <color attach="background" args={['#7fb6e8']} />
+          {/* Light far-distance fog only — keeps the sky and far clouds visible */}
+          <fog attach="fog" args={['#bcdcf2', 180, 600]} />
+          {/* Drei Sky: golden-hour-ish, more dramatic params */}
+          <Sky
+            sunPosition={[15, 8, 30]}
+            turbidity={8}
+            rayleigh={3.2}
+            mieCoefficient={0.005}
+            mieDirectionalG={0.8}
+            distance={1000}
+          />
           <hemisphereLight args={['#fef3c7', '#475569', 0.55]} />
           <ambientLight intensity={0.18} color="#fde68a" />
           <directionalLight
