@@ -1098,7 +1098,7 @@ export function generateWorld(seed = 1337): WorldData {
   mover(out, {
     ax: 6, ay: 31, az: -4,
     bx: 1, by: 37, bz: 0,
-    hx: 0.9, hy: 0.12, hz: 0.9,
+    hx: 1.5, hy: 0.18, hz: 1.5,    // 3m × 3m × 0.36m — large + thick so swept landing is reliable
     period: 7, phase: 0,
     color: C.roofGold,
   });

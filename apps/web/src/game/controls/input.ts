@@ -7,6 +7,8 @@ export const input = {
   right: 0,
   jumpPressed: false,
   jumpHeld: false,
+  /** Shift — used for fly-mode descent */
+  descendHeld: false,
   yaw: 0,
   pitch: -0.35,
 };
@@ -24,4 +26,5 @@ export function resetInput(): void {
   input.right = 0;
   input.jumpPressed = false;
   input.jumpHeld = false;
+  input.descendHeld = false;
 }

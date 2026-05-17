@@ -38,6 +38,10 @@ export function useKeyboard(active: boolean): void {
         e.preventDefault();
         return;
       }
+      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+        input.descendHeld = true;
+        return;
+      }
       held.add(e.code);
       if ([...Object.values(KEYS)].flat().includes(e.code)) e.preventDefault();
       recompute();
@@ -45,11 +49,13 @@ export function useKeyboard(active: boolean): void {
     const onUp = (e: KeyboardEvent) => {
       held.delete(e.code);
       if (KEYS.jump.includes(e.code)) input.jumpHeld = false;
+      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') input.descendHeld = false;
       recompute();
     };
     const onBlur = () => {
       held.clear();
       input.jumpHeld = false;
+      input.descendHeld = false;
       recompute();
     };
     window.addEventListener('keydown', onDown);

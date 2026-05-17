@@ -19,6 +19,7 @@ const BUFFER_MS = 110;
 const MAX_JUMPS = 2;
 const CLIMB_SPEED = 4;             // ladder vertical speed (m/s)
 const LADDER_RELEASE_MS = 220;     // after jumping off a ladder, gravity stays on this long
+const FLY_SPEED = 14;              // cheat: free-fly speed
 
 const CAMERA_DIST = 6.5;
 const CAMERA_LERP_TAU = 0.07;
@@ -72,6 +73,7 @@ export default function Player({
   ladders,
   movers,
   spawn,
+  cheats,
   onInput,
   onDoubleJump,
   onJumpsChange,
@@ -81,6 +83,7 @@ export default function Player({
   ladders: Box[];
   movers: Mover[];
   spawn: { x: number; y: number; z: number };
+  cheats: { fly: boolean; infiniteJumps: boolean };
   onInput: (i: LocalInput) => void;
   onDoubleJump?: () => void;
   onJumpsChange?: (used: number) => void;
@@ -121,6 +124,59 @@ export default function Player({
     const s = stateRef.current;
     const cdt = Math.min(dt, 0.05);
     const now = state.clock.elapsedTime * 1000;
+
+    // ── FLY CHEAT — bypass everything else and move freely ──
+    if (cheats.fly) {
+      const yaw = input.yaw;
+      const fwd = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+      const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+      const moveX = right.x * input.right + fwd.x * input.forward;
+      const moveZ = right.z * input.right + fwd.z * input.forward;
+      const mag = Math.hypot(moveX, moveZ);
+      let vx = 0, vz = 0;
+      if (mag > 0) {
+        vx = (moveX / mag) * FLY_SPEED;
+        vz = (moveZ / mag) * FLY_SPEED;
+      }
+      const vy = (input.jumpHeld ? FLY_SPEED : 0) - (input.descendHeld ? FLY_SPEED : 0);
+      s.x += vx * cdt;
+      s.y += vy * cdt;
+      s.z += vz * cdt;
+      s.vx = vx; s.vy = vy; s.vz = vz;
+      s.grounded = false;
+      s.jumpsUsed = 0;
+      s.mountedMoverIdx = -1;
+
+      // visual rotation toward movement
+      if (mag > 0.1) {
+        const target = Math.atan2(moveX, moveZ);
+        const diff = wrapPi(target - s.visualYaw);
+        s.visualYaw += diff * Math.min(1, cdt * 12);
+      }
+      if (ref.current) {
+        ref.current.position.set(s.x, s.y, s.z);
+        ref.current.rotation.y = s.visualYaw;
+      }
+      s.state = mag > 0.05 ? 'run' : 'idle';
+
+      // camera follow (same as normal)
+      const pitch = input.pitch;
+      const dirX = Math.sin(yaw) * Math.cos(pitch);
+      const dirY = -Math.sin(pitch);
+      const dirZ = Math.cos(yaw) * Math.cos(pitch);
+      const tx = s.x, ty = s.y + 1, tz = s.z;
+      _camTarget.set(tx + dirX * CAMERA_DIST, ty + dirY * CAMERA_DIST, tz + dirZ * CAMERA_DIST);
+      camera.position.lerp(_camTarget, 1 - Math.pow(CAMERA_LERP_TAU, cdt));
+      camera.lookAt(s.x, s.y + 0.9, s.z);
+
+      // send to server
+      const nowPerf = performance.now();
+      if (nowPerf - lastSendRef.current > 1000 / SEND_HZ) {
+        lastSendRef.current = nowPerf;
+        onInput({ x: s.x, y: s.y, z: s.z, yaw: s.visualYaw, state: s.state });
+      }
+      return;
+    }
 
     // ── direction from input + camera yaw ──
     const yaw = input.yaw;
@@ -170,7 +226,7 @@ export default function Player({
         s.lastJumpAt = now;
         s.bufferedJumpUntil = -Infinity;
         onJumpsChange?.(s.jumpsUsed);
-      } else if (s.jumpsUsed < MAX_JUMPS) {
+      } else if (cheats.infiniteJumps || s.jumpsUsed < MAX_JUMPS) {
         s.vy = Math.max(s.vy, DOUBLE_JUMP_SPEED);
         s.jumpsUsed += 1;
         s.grounded = false;

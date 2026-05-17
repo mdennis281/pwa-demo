@@ -6,6 +6,7 @@ import Spectator from './Spectator';
 import SkyDome from './SkyDome';
 import World, { generateWorld } from './World';
 import { spawnFor } from './worldgen';
+import CheatMenu, { DEFAULT_CHEATS, type Cheats } from './CheatMenu';
 import HUD from './HUD';
 import TouchControls from './controls/TouchControls';
 import { useKeyboard } from './controls/useKeyboard';
@@ -33,7 +34,21 @@ export default function GameCanvas({
   const [canvasEl, setCanvasEl] = useState<HTMLCanvasElement | null>(null);
   const [isTouch, setIsTouch] = useState(false);
   const [jumpsUsed, setJumpsUsed] = useState(0);
+  const [cheats, setCheats] = useState<Cheats>(DEFAULT_CHEATS);
+  const [cheatsOpen, setCheatsOpen] = useState(false);
   const myStateRef = useRef({ y: spawn.y, maxY: spawn.y });
+
+  // Ctrl+C toggles the cheat menu
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey && (e.code === 'KeyC' || e.key === 'c' || e.key === 'C')) {
+        e.preventDefault();
+        setCheatsOpen((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   useKeyboard(true);
   const { locked } = useMouseLook(canvasEl, !isTouch);
@@ -105,6 +120,7 @@ export default function GameCanvas({
               ladders={world.ladders}
               movers={world.movers}
               spawn={spawn}
+              cheats={cheats}
               onInput={sendInput}
               onJumpsChange={setJumpsUsed}
             />
@@ -139,6 +155,19 @@ export default function GameCanvas({
       />
 
       <TouchControls active={isTouch} />
+
+      <CheatMenu
+        open={cheatsOpen}
+        cheats={cheats}
+        onChange={setCheats}
+        onClose={() => setCheatsOpen(false)}
+      />
+
+      {(cheats.fly || cheats.infiniteJumps) && (
+        <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-30 text-[10px] text-amber-200 bg-slate-950/60 border border-amber-500/30 rounded px-2 py-1 font-mono uppercase tracking-wider">
+          cheats: {cheats.fly ? 'fly' : ''}{cheats.fly && cheats.infiniteJumps ? ' · ' : ''}{cheats.infiniteJumps ? '∞ jumps' : ''}
+        </div>
+      )}
 
       <div className="absolute top-4 right-1/2 translate-x-1/2 z-30 flex gap-2">
         <button
