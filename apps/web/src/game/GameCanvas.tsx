@@ -1,9 +1,9 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { Sky } from '@react-three/drei';
 import Player from './Player';
 import RemotePlayer from './RemotePlayer';
 import Spectator from './Spectator';
+import SkyDome from './SkyDome';
 import World, { generateWorld } from './World';
 import { spawnFor } from './worldgen';
 import HUD from './HUD';
@@ -69,34 +69,32 @@ export default function GameCanvas({
         onCreated={({ gl }) => setCanvasEl(gl.domElement)}
       >
         <Suspense fallback={null}>
-          {/* Hard background color so even if Sky doesn't render, the horizon is sky-blue */}
-          <color attach="background" args={['#7fb6e8']} />
-          {/* Light far-distance fog only — keeps the sky and far clouds visible */}
-          <fog attach="fog" args={['#bcdcf2', 180, 600]} />
-          {/* Drei Sky: golden-hour-ish, more dramatic params */}
-          <Sky
-            sunPosition={[15, 8, 30]}
-            turbidity={8}
-            rayleigh={3.2}
-            mieCoefficient={0.005}
-            mieDirectionalG={0.8}
-            distance={1000}
+          {/* Custom shader skydome — guaranteed visible gradient + soft sun */}
+          <SkyDome
+            topColor="#2f6db8"
+            midColor="#a5cce9"
+            horizonColor="#ffd3a0"
+            groundColor="#a87c54"
+            sunDirection={[0.4, 0.55, 0.7]}
+            sunColor="#ffe5b0"
           />
-          <hemisphereLight args={['#fef3c7', '#475569', 0.55]} />
-          <ambientLight intensity={0.18} color="#fde68a" />
+          {/* Subtle far-distance fog — only kicks in past the playable area */}
+          <fog attach="fog" args={['#cfe1f2', 220, 800]} />
+          <hemisphereLight args={['#fff0c8', '#3e5a78', 0.5]} />
+          <ambientLight intensity={0.22} color="#fde68a" />
           <directionalLight
-            position={[30, 50, 18]}
-            intensity={1.4}
-            color="#fde68a"
+            position={[50, 60, 30]}
+            intensity={1.5}
+            color="#ffe5b0"
             castShadow
             shadow-mapSize-width={2048}
             shadow-mapSize-height={2048}
-            shadow-camera-left={-30}
-            shadow-camera-right={30}
-            shadow-camera-top={50}
-            shadow-camera-bottom={-30}
+            shadow-camera-left={-60}
+            shadow-camera-right={60}
+            shadow-camera-top={60}
+            shadow-camera-bottom={-60}
             shadow-camera-near={1}
-            shadow-camera-far={180}
+            shadow-camera-far={300}
             shadow-bias={-0.0002}
           />
           <World data={world} />
