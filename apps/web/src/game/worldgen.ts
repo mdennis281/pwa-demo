@@ -414,17 +414,40 @@ function bridge(out: WorldData, x1: number, z1: number, x2: number, z2: number, 
   const dx = x2 - x1;
   const dz = z2 - z1;
   const len = Math.hypot(dx, dz);
+  if (len < 0.01) return;
   const rotY = Math.atan2(dx, dz);
-  // The plank is oriented so its long axis is along z by default, then rotated.
-  // We'll build a long thin solid box with halfX=width/2, halfZ=len/2.
-  solidBox(out, cx, y, cz, 0.7, 0.08, len / 2, C.plank, { rotY, rough: 0.85 });
-  // Rope sides
+  const halfW = 0.7;
+  const halfTH = 0.1;
+
+  // Visual: single long rotated plank — looks smooth and continuous
+  decoBox(out, cx, y, cz, halfW, halfTH, len / 2, C.plank, { rotY, rough: 0.85 });
+
+  // Physics: chain of small axis-aligned AABBs along the centerline.
+  // AABB rotation isn't supported, so for an east-west visual a north-south
+  // AABB would miss everything except the center. Segments are short enough
+  // (≤0.6m) that the bounding AABB stays close to the actual plank shape.
+  const dirX = dx / len;
+  const dirZ = dz / len;
+  const segMax = 0.6;
+  const numSegs = Math.max(1, Math.ceil(len / segMax));
+  const segLen = len / numSegs;
+  for (let i = 0; i < numSegs; i++) {
+    const t = (i + 0.5) / numSegs;
+    const sx = x1 + dx * t;
+    const sz = z1 + dz * t;
+    // Bounding AABB of a rotated rectangle (halfLen along direction × halfW perpendicular)
+    const hxSeg = Math.abs(dirX) * (segLen / 2) + Math.abs(dirZ) * halfW;
+    const hzSeg = Math.abs(dirZ) * (segLen / 2) + Math.abs(dirX) * halfW;
+    out.boxes.push({ x: sx, y, z: sz, hx: hxSeg, hy: halfTH, hz: hzSeg });
+  }
+
+  // Rope rails (visual only)
   for (const sign of [1, -1] as const) {
     const ox = -Math.cos(rotY) * 0.75 * sign;
     const oz = Math.sin(rotY) * 0.75 * sign;
     decoBox(out, cx + ox, y + 0.5, cz + oz, 0.03, 0.5, len / 2, C.wood, { rotY });
   }
-  // End posts
+  // End posts (visual)
   for (const [ex, ez] of [[x1, z1], [x2, z2]] as const) {
     decoCyl(out, ex, y + 0.4, ez, 0.08, 0.8, C.wood);
   }
