@@ -22,13 +22,19 @@ app.use('/api/push', pushRoute);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const webDist = path.resolve(__dirname, '../../web/dist');
+const isCompiled = (process.argv[1] ?? '').endsWith('.js');
+
 import('node:fs').then(({ existsSync }) => {
+  if (!isCompiled) {
+    console.log('[web] dev mode (tsx) — SPA is served by Vite on :5173, not from /dist');
+    return;
+  }
   if (existsSync(webDist)) {
     app.use(express.static(webDist));
     app.get('*', (_req, res) => res.sendFile(path.join(webDist, 'index.html')));
-    console.log(`[web] serving static SPA from ${webDist}`);
+    console.log(`[web] prod mode — serving static SPA from ${webDist}`);
   } else {
-    console.log('[web] no built SPA found — run `npm -w apps/web run build` for prod mode');
+    console.log('[web] no built SPA found — run `npm run build` first');
   }
 });
 

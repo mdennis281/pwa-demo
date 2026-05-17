@@ -137,6 +137,7 @@ apps/web/public/favicon.ico
 # Build outputs
 apps/*/dist/
 packages/*/dist/
+apps/web/dev-dist/
 
 # Local agent state
 .claude/settings.local.json

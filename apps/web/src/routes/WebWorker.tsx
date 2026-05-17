@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import FlowField from '../components/FlowField';
 
 type Result = { count: number; ms: number } | null;
 
@@ -44,11 +45,15 @@ export default function WebWorker() {
   }
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
+    <div className="p-8 max-w-5xl mx-auto">
       <h1 className="text-3xl font-bold mb-2">Web Worker</h1>
       <p className="text-slate-400 mb-6">
-        Sieve of Eratosthenes up to <strong>N</strong>. Watch the spinner: the main thread version freezes the UI; the worker keeps it smooth.
+        A flow-field particle animation runs continuously on the main thread. Click <strong>Main thread</strong> to
+        block it — the field freezes. Click <strong>Web Worker</strong> and the animation stays buttery while the
+        same sieve runs off-thread.
       </p>
+
+      <FlowField className="mb-6" />
 
       <label className="block mb-6">
         <span className="text-sm text-slate-400">N</span>
@@ -63,17 +68,10 @@ export default function WebWorker() {
         />
       </label>
 
-      <div className="mb-6 flex items-center gap-3">
-        <div className="text-2xl" aria-hidden>
-          <Spinner />
-        </div>
-        <span className="text-sm text-slate-500">if this spinner stutters → main thread is blocked</span>
-      </div>
-
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Panel
           title="Main thread"
-          subtitle="will freeze the UI"
+          subtitle="will freeze the animation"
           running={mainRunning}
           result={mainResult}
           onRun={runMain}
@@ -81,7 +79,7 @@ export default function WebWorker() {
         />
         <Panel
           title="Web Worker"
-          subtitle="off-thread, UI stays smooth"
+          subtitle="off-thread, animation stays smooth"
           running={workerRunning}
           result={workerResult}
           onRun={runWorker}
@@ -124,15 +122,6 @@ function Panel({
         )}
       </div>
     </div>
-  );
-}
-
-function Spinner() {
-  return (
-    <span
-      className="inline-block w-6 h-6 border-2 border-slate-700 border-t-brand-400 rounded-full animate-spin"
-      aria-label="spinner"
-    />
   );
 }
 
