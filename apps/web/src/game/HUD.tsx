@@ -6,12 +6,16 @@ export default function HUD({
   players,
   selfId,
   pointerLocked,
+  jumpsUsed,
+  isPlayer,
 }: {
   myHeight: number;
   myMaxHeight: number;
   players: PlayerSnapshot[];
   selfId: string;
   pointerLocked: boolean;
+  jumpsUsed: number;
+  isPlayer: boolean;
 }) {
   const ranking = [...players]
     .filter((p) => p.role === 'player')
@@ -20,11 +24,29 @@ export default function HUD({
 
   return (
     <div className="absolute inset-0 pointer-events-none text-white z-10">
-      {/* Top-left: my altitude */}
+      {/* Top-left: my altitude + jump indicator */}
       <div className="absolute top-4 left-4 pointer-events-auto bg-slate-950/70 backdrop-blur border border-slate-800 rounded-lg px-3 py-2 font-mono text-sm">
         <div className="text-slate-400 text-[10px] uppercase tracking-wider">altitude</div>
         <div className="text-2xl font-bold tabular-nums">{myHeight.toFixed(1)}m</div>
         <div className="text-xs text-slate-400 tabular-nums">best: {myMaxHeight.toFixed(1)}m</div>
+        {isPlayer && (
+          <div className="flex items-center gap-1 mt-2">
+            <span className="text-[10px] uppercase tracking-wider text-slate-500 mr-1">jumps</span>
+            {[0, 1].map((i) => {
+              const available = i >= jumpsUsed;
+              return (
+                <span
+                  key={i}
+                  className={`inline-block w-2.5 h-2.5 rounded-full transition ${
+                    available
+                      ? 'bg-emerald-400 shadow-[0_0_6px_rgba(74,222,128,0.7)]'
+                      : 'bg-slate-700'
+                  }`}
+                />
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Top-right: leaderboard */}
@@ -44,7 +66,7 @@ export default function HUD({
       {/* Bottom-center: controls hint */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-xs text-slate-300 bg-slate-950/60 backdrop-blur border border-slate-800 rounded-lg px-3 py-1.5 hidden md:block">
         {pointerLocked ? (
-          <>WASD move · SPACE jump · mouse look · ESC release cursor</>
+          <>WASD · SPACE jump (×2 for double) · hold for higher hop · mouse look · ESC release</>
         ) : (
           <>click canvas to capture mouse · WASD / SPACE / mouse</>
         )}

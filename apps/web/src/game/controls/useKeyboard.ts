@@ -31,20 +31,25 @@ export function useKeyboard(active: boolean): void {
     };
     const onDown = (e: KeyboardEvent) => {
       if (isInput(e.target)) return;
-      held.add(e.code);
       if (KEYS.jump.includes(e.code)) {
-        input.jumpPressed = true;
+        if (!held.has(e.code)) input.jumpPressed = true;
+        input.jumpHeld = true;
+        held.add(e.code);
         e.preventDefault();
+        return;
       }
+      held.add(e.code);
       if ([...Object.values(KEYS)].flat().includes(e.code)) e.preventDefault();
       recompute();
     };
     const onUp = (e: KeyboardEvent) => {
       held.delete(e.code);
+      if (KEYS.jump.includes(e.code)) input.jumpHeld = false;
       recompute();
     };
     const onBlur = () => {
       held.clear();
+      input.jumpHeld = false;
       recompute();
     };
     window.addEventListener('keydown', onDown);

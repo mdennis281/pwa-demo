@@ -6,6 +6,7 @@ export const input = {
   forward: 0, // -1 (back) .. 1 (fwd)
   right: 0,
   jumpPressed: false,
+  jumpHeld: false,
   yaw: 0,
   pitch: -0.35,
 };
@@ -22,4 +23,5 @@ export function resetInput(): void {
   input.forward = 0;
   input.right = 0;
   input.jumpPressed = false;
+  input.jumpHeld = false;
 }

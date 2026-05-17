@@ -121,7 +121,11 @@ export default function TouchControls({ active }: { active: boolean }) {
         onPointerDown={(e) => {
           e.preventDefault();
           input.jumpPressed = true;
+          input.jumpHeld = true;
         }}
+        onPointerUp={() => { input.jumpHeld = false; }}
+        onPointerCancel={() => { input.jumpHeld = false; }}
+        onPointerLeave={() => { input.jumpHeld = false; }}
         className="absolute bottom-8 right-8 w-20 h-20 rounded-full bg-brand-500/90 text-slate-950 font-bold text-lg shadow-lg active:scale-95"
       >
         JUMP

@@ -30,6 +30,7 @@ export default function GameCanvas({
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
   const [canvasEl, setCanvasEl] = useState<HTMLCanvasElement | null>(null);
   const [isTouch, setIsTouch] = useState(false);
+  const [jumpsUsed, setJumpsUsed] = useState(0);
   const myStateRef = useRef({ y: 2, maxY: 2 });
 
   useKeyboard(true);
@@ -66,24 +67,33 @@ export default function GameCanvas({
         onCreated={({ gl }) => setCanvasEl(gl.domElement)}
       >
         <Suspense fallback={null}>
-          <Sky sunPosition={[100, 80, 100]} turbidity={6} rayleigh={2} />
-          <hemisphereLight args={['#bae6fd', '#1e293b', 0.7]} />
+          <fog attach="fog" args={['#dbeafe', 40, 180]} />
+          <Sky sunPosition={[40, 18, 50]} turbidity={4} rayleigh={1.2} mieCoefficient={0.005} mieDirectionalG={0.8} />
+          <hemisphereLight args={['#fef3c7', '#475569', 0.55]} />
+          <ambientLight intensity={0.18} color="#fde68a" />
           <directionalLight
-            position={[20, 40, 10]}
-            intensity={1.2}
+            position={[30, 50, 18]}
+            intensity={1.4}
+            color="#fde68a"
             castShadow
             shadow-mapSize-width={2048}
             shadow-mapSize-height={2048}
-            shadow-camera-left={-40}
-            shadow-camera-right={40}
-            shadow-camera-top={40}
-            shadow-camera-bottom={-40}
+            shadow-camera-left={-30}
+            shadow-camera-right={30}
+            shadow-camera-top={50}
+            shadow-camera-bottom={-30}
             shadow-camera-near={1}
-            shadow-camera-far={120}
+            shadow-camera-far={180}
+            shadow-bias={-0.0002}
           />
           <World data={world} />
           {role === 'player' ? (
-            <Player variant={variant} boxes={world.boxes} onInput={sendInput} />
+            <Player
+              variant={variant}
+              boxes={world.boxes}
+              onInput={sendInput}
+              onJumpsChange={setJumpsUsed}
+            />
           ) : (
             <Spectator />
           )}
@@ -110,6 +120,8 @@ export default function GameCanvas({
         players={snapshot?.players ?? []}
         selfId={selfId}
         pointerLocked={locked}
+        jumpsUsed={jumpsUsed}
+        isPlayer={role === 'player'}
       />
 
       <TouchControls active={isTouch} />

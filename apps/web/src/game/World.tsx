@@ -1,72 +1,163 @@
-import { useMemo } from 'react';
-import type { Box } from './physics';
+import { useMemo, useRef } from 'react';
+import { useFrame } from '@react-three/fiber';
+import * as THREE from 'three';
+import { generateWorld, type WorldData, type MeshDesc, type Windmill, type Flag, type SmokePuff } from './worldgen';
 
-export type WorldData = {
-  boxes: Box[];
-  maxHeight: number;
-};
+export { generateWorld };
+export type { WorldData };
 
-/** Tiny seeded RNG so the world is the same for everyone in a session. */
-function makeRng(seed: number) {
-  let s = seed >>> 0;
-  return () => {
-    s = (s * 1664525 + 1013904223) >>> 0;
-    return s / 0x100000000;
-  };
-}
-
-export function generateWorld(seed = 1337): WorldData {
-  const rng = makeRng(seed);
-  const boxes: Box[] = [];
-
-  // Ground plate
-  boxes.push({ x: 0, y: -0.5, z: 0, hx: 25, hy: 0.5, hz: 25 });
-
-  // Tower of platforms
-  let y = 1.8;
-  const tiers = 60;
-  for (let i = 0; i < tiers; i++) {
-    // funnel: range tightens slightly as we go up to keep the player on track
-    const range = 18 - (i / tiers) * 8;
-    const hx = 1.5 + rng() * 2.5;
-    const hz = 1.5 + rng() * 2.5;
-    const x = (rng() * 2 - 1) * range;
-    const z = (rng() * 2 - 1) * range;
-    boxes.push({ x, y, z, hx, hy: 0.4, hz });
-    y += 1.5 + rng() * 1.3;
+function Mesh({ m }: { m: MeshDesc }) {
+  const material = (
+    <meshStandardMaterial
+      color={(m as { color: string }).color}
+      roughness={'roughness' in m ? (m.roughness ?? 0.85) : 0.85}
+      metalness={0.04}
+      emissive={'emissive' in m && m.emissive ? m.emissive : '#000000'}
+      emissiveIntensity={'emissive' in m && m.emissive ? (m.emissiveIntensity ?? 0) : 0}
+    />
+  );
+  const cast = 'cast' in m ? (m.cast ?? true) : true;
+  switch (m.type) {
+    case 'box':
+      return (
+        <mesh position={[m.x, m.y, m.z]} rotation={[0, m.rotY ?? 0, 0]} castShadow={cast} receiveShadow={m.receive ?? true}>
+          <boxGeometry args={[m.hx * 2, m.hy * 2, m.hz * 2]} />
+          {material}
+        </mesh>
+      );
+    case 'cone':
+      return (
+        <mesh position={[m.x, m.y, m.z]} rotation={[0, m.rotY ?? 0, 0]} castShadow={cast}>
+          <coneGeometry args={[m.radius, m.height, m.segments ?? 16]} />
+          {material}
+        </mesh>
+      );
+    case 'cylinder':
+      return (
+        <mesh position={[m.x, m.y, m.z]} rotation={[0, m.rotY ?? 0, 0]} castShadow={cast}>
+          <cylinderGeometry args={[m.radius, m.radius, m.height, m.segments ?? 16]} />
+          {material}
+        </mesh>
+      );
+    case 'sphere':
+      return (
+        <mesh position={[m.x, m.y, m.z]} castShadow={cast}>
+          <sphereGeometry args={[m.radius, m.segments ?? 18, m.segments ?? 14]} />
+          {material}
+        </mesh>
+      );
   }
-
-  return { boxes, maxHeight: y };
 }
 
-function tierColor(y: number, max: number): string {
-  const t = Math.max(0, Math.min(1, y / max));
-  const hue = 200 - t * 280; // cyan -> magenta as we climb
-  return `hsl(${hue}, 75%, ${55 - t * 10}%)`;
+function WindmillNode({ wm }: { wm: Windmill }) {
+  const hubRef = useRef<THREE.Group>(null);
+  useFrame((_, dt) => {
+    if (hubRef.current) hubRef.current.rotation.z += dt * 0.6;
+  });
+  return (
+    <group position={[wm.x, wm.y, wm.z]} rotation={[0, wm.rotY, 0]}>
+      {/* hub */}
+      <mesh castShadow>
+        <sphereGeometry args={[0.25, 14, 14]} />
+        <meshStandardMaterial color="#1f2937" />
+      </mesh>
+      {/* blades */}
+      <group ref={hubRef}>
+        {[0, 1, 2, 3].map((i) => (
+          <group key={i} rotation={[0, 0, (i * Math.PI) / 2]}>
+            <mesh position={[0, 1.2, 0.06]} castShadow>
+              <boxGeometry args={[0.28, 2.4, 0.08]} />
+              <meshStandardMaterial color="#fef3c7" />
+            </mesh>
+            <mesh position={[0.05, 1.8, 0.07]} castShadow>
+              <boxGeometry args={[0.5, 0.9, 0.02]} />
+              <meshStandardMaterial color="#fde68a" />
+            </mesh>
+          </group>
+        ))}
+      </group>
+    </group>
+  );
+}
+
+function FlagNode({ f }: { f: Flag }) {
+  const ref = useRef<THREE.Mesh>(null);
+  useFrame((state) => {
+    if (!ref.current) return;
+    const t = state.clock.elapsedTime;
+    ref.current.rotation.y = Math.sin(t * 3 + f.x + f.z) * 0.18;
+    ref.current.scale.x = 1 + Math.sin(t * 5 + f.z) * 0.06;
+  });
+  return (
+    <group position={[f.x, f.y, f.z]} rotation={[0, f.rotY, 0]}>
+      <mesh ref={ref} position={[0.4, 0, 0]}>
+        <boxGeometry args={[0.85, 0.55, 0.02]} />
+        <meshStandardMaterial color={f.color} side={THREE.DoubleSide} />
+      </mesh>
+    </group>
+  );
+}
+
+function Smoke({ p }: { p: SmokePuff }) {
+  const ref = useRef<THREE.Group>(null);
+  useFrame((state) => {
+    if (!ref.current) return;
+    const t = state.clock.elapsedTime;
+    for (let i = 0; i < ref.current.children.length; i++) {
+      const child = ref.current.children[i] as THREE.Mesh;
+      const phase = (t + i * 0.7) % 3.0;
+      child.position.y = phase * 0.8;
+      child.position.x = Math.sin(phase * 1.6 + i) * 0.25;
+      const scale = 0.4 + phase * 0.25;
+      child.scale.setScalar(scale);
+      const mat = child.material as THREE.MeshStandardMaterial;
+      mat.opacity = Math.max(0, 1 - phase / 3);
+    }
+  });
+  return (
+    <group ref={ref} position={[p.x, p.y, p.z]}>
+      {[0, 1, 2].map((i) => (
+        <mesh key={i}>
+          <sphereGeometry args={[0.25, 10, 10]} />
+          <meshStandardMaterial color="#cbd5e1" transparent opacity={0.7} depthWrite={false} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+function GoalOrb({ x, y, z }: { x: number; y: number; z: number }) {
+  const ref = useRef<THREE.Group>(null);
+  useFrame((state) => {
+    if (!ref.current) return;
+    const t = state.clock.elapsedTime;
+    ref.current.position.y = y + Math.sin(t * 1.4) * 0.25;
+    ref.current.rotation.y = t * 0.5;
+  });
+  return (
+    <group ref={ref} position={[x, y, z]}>
+      <mesh>
+        <sphereGeometry args={[0.7, 24, 24]} />
+        <meshStandardMaterial color="#fde047" emissive="#facc15" emissiveIntensity={2.5} />
+      </mesh>
+      <mesh>
+        <sphereGeometry args={[1.2, 16, 16]} />
+        <meshStandardMaterial color="#fef9c3" emissive="#fef08a" emissiveIntensity={0.4} transparent opacity={0.2} depthWrite={false} />
+      </mesh>
+      <pointLight color="#fde047" intensity={2} distance={12} />
+    </group>
+  );
 }
 
 export default function World({ data }: { data: WorldData }) {
-  const meshes = useMemo(() => {
-    return data.boxes.map((b, i) => {
-      const isGround = i === 0;
-      const color = isGround ? '#1e293b' : tierColor(b.y, data.maxHeight);
-      return (
-        <mesh key={i} position={[b.x, b.y, b.z]} receiveShadow castShadow={!isGround}>
-          <boxGeometry args={[b.hx * 2, b.hy * 2, b.hz * 2]} />
-          <meshStandardMaterial color={color} roughness={0.85} metalness={0.05} />
-        </mesh>
-      );
-    });
-  }, [data]);
-
+  const meshNodes = useMemo(() => data.meshes.map((m, i) => <Mesh key={i} m={m} />), [data]);
   return (
     <>
-      {meshes}
-      {/* Decorative: a glowing top marker so people see the goal */}
-      <mesh position={[0, data.maxHeight + 2, 0]}>
-        <sphereGeometry args={[0.6, 24, 24]} />
-        <meshStandardMaterial color="#facc15" emissive="#facc15" emissiveIntensity={2} />
-      </mesh>
+      {meshNodes}
+      {data.windmills.map((wm, i) => <WindmillNode key={`wm-${i}`} wm={wm} />)}
+      {data.flags.map((f, i) => <FlagNode key={`fl-${i}`} f={f} />)}
+      {data.smoke.map((s, i) => <Smoke key={`sm-${i}`} p={s} />)}
+      <GoalOrb x={data.goal.x} y={data.goal.y} z={data.goal.z} />
     </>
   );
 }
