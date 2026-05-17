@@ -3,7 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import Character from './Character';
 import { input, consumeJump } from './controls/input';
-import { stepPlayer } from './physics';
+import { rayHitDistance, stepPlayer } from './physics';
 import type { Box } from './physics';
 import type { LocalInput } from '@pwa-demo/shared';
 
@@ -19,24 +19,31 @@ const MAX_JUMPS = 2;
 
 const CAMERA_DIST = 6.5;
 const CAMERA_LERP_TAU = 0.07;
+const CAMERA_MIN_DIST = 1.2;
+const CAMERA_PAD = 0.4;
 const SEND_HZ = 20;
+
+const _camTarget = new THREE.Vector3();
 
 export default function Player({
   variant,
   boxes,
+  spawn,
   onInput,
   onDoubleJump,
   onJumpsChange,
 }: {
   variant: number;
   boxes: Box[];
+  spawn: { x: number; y: number; z: number };
   onInput: (i: LocalInput) => void;
   onDoubleJump?: () => void;
   onJumpsChange?: (used: number) => void;
 }) {
   const ref = useRef<THREE.Group>(null);
+  const spawnRef = useRef(spawn);
   const stateRef = useRef({
-    x: 0, y: 2, z: 0,
+    x: spawn.x, y: spawn.y, z: spawn.z,
     vx: 0, vy: 0, vz: 0,
     grounded: false,
     visualYaw: 0,
@@ -50,8 +57,17 @@ export default function Player({
   const { camera } = useThree();
 
   useEffect(() => {
-    camera.position.set(0, 6, 12);
-    camera.lookAt(0, 1, 0);
+    spawnRef.current = spawn;
+  }, [spawn]);
+
+  useEffect(() => {
+    camera.position.set(spawn.x, spawn.y + 5, spawn.z + 10);
+    camera.lookAt(spawn.x, spawn.y + 1, spawn.z);
+    // initial camera yaw faces the world center for a friendlier start
+    const dx = -spawn.x;
+    const dz = -spawn.z;
+    input.yaw = Math.atan2(dx, dz);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [camera]);
 
   useFrame((state, dt) => {
@@ -135,7 +151,8 @@ export default function Player({
 
     // Respawn if we fall off
     if (s.y < -20) {
-      s.x = 0; s.y = 2; s.z = 0;
+      const sp = spawnRef.current;
+      s.x = sp.x; s.y = sp.y; s.z = sp.z;
       s.vx = 0; s.vy = 0; s.vz = 0;
       s.jumpsUsed = 0;
     }
@@ -153,16 +170,22 @@ export default function Player({
     }
     s.state = !s.grounded ? 'air' : mag > 0.05 ? 'run' : 'idle';
 
-    // ── third-person follow camera ──
+    // ── third-person follow camera with occlusion raycast ──
     const pitch = input.pitch;
-    const camOff = new THREE.Vector3(
-      Math.sin(yaw) * Math.cos(pitch),
-      -Math.sin(pitch),
-      Math.cos(yaw) * Math.cos(pitch),
-    ).multiplyScalar(CAMERA_DIST);
-    const targetPos = new THREE.Vector3(s.x, s.y + 1, s.z);
-    const ideal = targetPos.clone().add(camOff);
-    camera.position.lerp(ideal, 1 - Math.pow(CAMERA_LERP_TAU, cdt));
+    const dirX = Math.sin(yaw) * Math.cos(pitch);
+    const dirY = -Math.sin(pitch);
+    const dirZ = Math.cos(yaw) * Math.cos(pitch);
+    const tx = s.x;
+    const ty = s.y + 1;
+    const tz = s.z;
+    // Raycast from camera target outward to ideal cam pos; pull camera in on hit.
+    const hit = rayHitDistance(tx, ty, tz, dirX, dirY, dirZ, CAMERA_DIST, boxes);
+    const actualDist = Math.max(CAMERA_MIN_DIST, Math.min(CAMERA_DIST, hit - CAMERA_PAD));
+    const idealX = tx + dirX * actualDist;
+    const idealY = ty + dirY * actualDist;
+    const idealZ = tz + dirZ * actualDist;
+    _camTarget.set(idealX, idealY, idealZ);
+    camera.position.lerp(_camTarget, 1 - Math.pow(CAMERA_LERP_TAU, cdt));
     camera.lookAt(s.x, s.y + 0.9, s.z);
 
     // ── send to server at fixed rate ──

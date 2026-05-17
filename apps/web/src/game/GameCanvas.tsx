@@ -5,6 +5,7 @@ import Player from './Player';
 import RemotePlayer from './RemotePlayer';
 import Spectator from './Spectator';
 import World, { generateWorld } from './World';
+import { spawnFor } from './worldgen';
 import HUD from './HUD';
 import TouchControls from './controls/TouchControls';
 import { useKeyboard } from './controls/useKeyboard';
@@ -27,11 +28,12 @@ export default function GameCanvas({
   onLeave: () => void;
 }) {
   const world = useMemo(() => generateWorld(1337), []);
+  const spawn = useMemo(() => spawnFor(selfId), [selfId]);
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
   const [canvasEl, setCanvasEl] = useState<HTMLCanvasElement | null>(null);
   const [isTouch, setIsTouch] = useState(false);
   const [jumpsUsed, setJumpsUsed] = useState(0);
-  const myStateRef = useRef({ y: 2, maxY: 2 });
+  const myStateRef = useRef({ y: spawn.y, maxY: spawn.y });
 
   useKeyboard(true);
   const { locked } = useMouseLook(canvasEl, !isTouch);
@@ -67,8 +69,8 @@ export default function GameCanvas({
         onCreated={({ gl }) => setCanvasEl(gl.domElement)}
       >
         <Suspense fallback={null}>
-          <fog attach="fog" args={['#dbeafe', 40, 180]} />
-          <Sky sunPosition={[40, 18, 50]} turbidity={4} rayleigh={1.2} mieCoefficient={0.005} mieDirectionalG={0.8} />
+          <fog attach="fog" args={['#cfe6ff', 70, 320]} />
+          <Sky sunPosition={[40, 18, 50]} turbidity={3} rayleigh={1.5} mieCoefficient={0.003} mieDirectionalG={0.85} distance={4000} />
           <hemisphereLight args={['#fef3c7', '#475569', 0.55]} />
           <ambientLight intensity={0.18} color="#fde68a" />
           <directionalLight
@@ -91,6 +93,7 @@ export default function GameCanvas({
             <Player
               variant={variant}
               boxes={world.boxes}
+              spawn={spawn}
               onInput={sendInput}
               onJumpsChange={setJumpsUsed}
             />

@@ -92,3 +92,65 @@ export function stepPlayer(opts: {
 
   return { feetX, feetY, feetZ, vx, vy, vz, grounded };
 }
+
+/**
+ * Slab-method ray-vs-AABB. Returns the nearest positive t hit across `boxes`,
+ * or `maxDist` if nothing was hit. Direction must be unit length.
+ */
+export function rayHitDistance(
+  rox: number, roy: number, roz: number,
+  rdx: number, rdy: number, rdz: number,
+  maxDist: number,
+  boxes: Box[],
+): number {
+  let best = maxDist;
+  for (const b of boxes) {
+    const t = rayAabb(rox, roy, roz, rdx, rdy, rdz, b, best);
+    if (t > 0 && t < best) best = t;
+  }
+  return best;
+}
+
+function rayAabb(
+  rox: number, roy: number, roz: number,
+  rdx: number, rdy: number, rdz: number,
+  b: Box,
+  tmax: number,
+): number {
+  let tmin = 0;
+  let tmaxLocal = tmax;
+  // x slab
+  if (Math.abs(rdx) < 1e-8) {
+    if (rox < b.x - b.hx || rox > b.x + b.hx) return Infinity;
+  } else {
+    let t1 = (b.x - b.hx - rox) / rdx;
+    let t2 = (b.x + b.hx - rox) / rdx;
+    if (t1 > t2) { const t = t1; t1 = t2; t2 = t; }
+    if (t1 > tmin) tmin = t1;
+    if (t2 < tmaxLocal) tmaxLocal = t2;
+    if (tmin > tmaxLocal) return Infinity;
+  }
+  // y slab
+  if (Math.abs(rdy) < 1e-8) {
+    if (roy < b.y - b.hy || roy > b.y + b.hy) return Infinity;
+  } else {
+    let t1 = (b.y - b.hy - roy) / rdy;
+    let t2 = (b.y + b.hy - roy) / rdy;
+    if (t1 > t2) { const t = t1; t1 = t2; t2 = t; }
+    if (t1 > tmin) tmin = t1;
+    if (t2 < tmaxLocal) tmaxLocal = t2;
+    if (tmin > tmaxLocal) return Infinity;
+  }
+  // z slab
+  if (Math.abs(rdz) < 1e-8) {
+    if (roz < b.z - b.hz || roz > b.z + b.hz) return Infinity;
+  } else {
+    let t1 = (b.z - b.hz - roz) / rdz;
+    let t2 = (b.z + b.hz - roz) / rdz;
+    if (t1 > t2) { const t = t1; t1 = t2; t2 = t; }
+    if (t1 > tmin) tmin = t1;
+    if (t2 < tmaxLocal) tmaxLocal = t2;
+    if (tmin > tmaxLocal) return Infinity;
+  }
+  return tmin > 0 ? tmin : Infinity;
+}
