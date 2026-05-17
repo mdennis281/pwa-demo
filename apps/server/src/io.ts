@@ -4,6 +4,7 @@ import type {
   ClientToServerEvents,
   ServerToClientEvents,
 } from '@pwa-demo/shared';
+import { attachGame } from './game/index.js';
 
 const clients = new Map<string, ClientInfo>();
 const STATUS_ROOM = 'status';
@@ -45,5 +46,7 @@ export function attachSocket(io: Server<ClientToServerEvents, ServerToClientEven
       clients.delete(socket.id);
       io.to(STATUS_ROOM).emit('clients:update', snapshot());
     });
+
+    attachGame(io, socket);
   });
 }

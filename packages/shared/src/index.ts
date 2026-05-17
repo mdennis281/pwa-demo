@@ -12,15 +12,95 @@ export type PushPayload = {
   actions?: { action: string; title: string }[];
 };
 
+// ────────────────────── game / lobby ──────────────────────
+
+export type Role = 'player' | 'spectator';
+
+export type LobbyInfo = {
+  id: string;
+  name: string;
+  hostName: string;
+  playerCount: number;
+  maxPlayers: number;
+  createdAt: number;
+};
+
+export type LobbyPlayer = {
+  id: string;
+  displayName: string;
+  character: number;
+  role: Role;
+  isHost: boolean;
+  maxHeight: number;
+};
+
+export type LobbyState = {
+  id: string;
+  name: string;
+  hostId: string;
+  maxPlayers: number;
+  createdAt: number;
+  players: LobbyPlayer[];
+};
+
+export type PlayerSnapshot = LobbyPlayer & {
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  /** simple flag set by client when in moving/jumping state */
+  state: 'idle' | 'run' | 'air';
+};
+
+export type GameSnapshot = {
+  lobbyId: string;
+  t: number;
+  players: PlayerSnapshot[];
+};
+
+export type LocalInput = {
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  state: 'idle' | 'run' | 'air';
+};
+
+export type LobbyCreate = {
+  name: string;
+  displayName: string;
+  character: number;
+  role: Role;
+};
+
+export type LobbyJoin = {
+  lobbyId: string;
+  displayName: string;
+  character: number;
+};
+
+export type LobbyResult =
+  | { ok: true; lobby: LobbyState }
+  | { ok: false; error: string };
+
 export interface ServerToClientEvents {
   'clients:update': (clients: ClientInfo[]) => void;
   'pong:reply': (sentAt: number) => void;
+  'lobby:list': (lobbies: LobbyInfo[]) => void;
+  'lobby:state': (state: LobbyState | null) => void;
+  'game:snapshot': (snap: GameSnapshot) => void;
 }
 
 export interface ClientToServerEvents {
   'status:join': () => void;
   'status:leave': () => void;
   'ping:probe': (sentAt: number) => void;
+  'lobby:browser:join': () => void;
+  'lobby:browser:leave': () => void;
+  'lobby:create': (opts: LobbyCreate, cb: (r: LobbyResult) => void) => void;
+  'lobby:join': (opts: LobbyJoin, cb: (r: LobbyResult) => void) => void;
+  'lobby:leave': () => void;
+  'game:input': (input: LocalInput) => void;
 }
 
 export type AnySocketEvent =

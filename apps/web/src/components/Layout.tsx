@@ -5,6 +5,7 @@ import ConnectionBadge from './ConnectionBadge';
 
 const NAV = [
   { to: '/',         label: 'Home' },
+  { to: '/game',     label: 'Tower (game)' },
   { to: '/worker',   label: 'Web Worker' },
   { to: '/status',   label: 'Status' },
   { to: '/push',     label: 'Push' },
