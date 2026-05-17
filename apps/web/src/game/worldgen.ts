@@ -24,6 +24,8 @@ export type Mover = {
   period: number;
   /** phase offset 0..1 */
   phase: number;
+  /** previous-frame position, used by Player to carry mounted riders */
+  prevX: number; prevY: number; prevZ: number;
 };
 
 export type WorldData = {
@@ -216,6 +218,7 @@ function mover(out: WorldData, opts: {
     bx: opts.bx, by: opts.by, bz: opts.bz,
     period: opts.period,
     phase: opts.phase ?? 0,
+    prevX: opts.ax, prevY: opts.ay, prevZ: opts.az,
   });
 }
 
@@ -591,9 +594,10 @@ function cloudPlatform(out: WorldData, x: number, y: number, z: number, r: numbe
 function crystal(out: WorldData, x: number, baseY: number, z: number, height: number) {
   const choices = [C.crystalA, C.crystalB, C.crystalC, C.crystalD];
   const c = choices[Math.floor(Math.abs((x * 7 + z * 13))) % choices.length];
-  decoCone(out, x, baseY + height / 2, z, 0.7, height, c, { segments: 6 });
-  decoCone(out, x, baseY + height / 2 + 0.4, z, 0.4, height * 0.4, C.crystalB, { segments: 6 });
-  solidBox(out, x, baseY + height + 0.05, z, 0.45, 0.05, 0.45, C.crystalC, { rough: 0.3 });
+  decoCone(out, x, baseY + height / 2, z, 0.9, height, c, { segments: 6 });
+  decoCone(out, x, baseY + height / 2 + 0.4, z, 0.55, height * 0.4, C.crystalB, { segments: 6 });
+  // Larger landable cap (1.6m square) so a slightly off-target jump still lands
+  solidBox(out, x, baseY + height + 0.06, z, 0.8, 0.06, 0.8, C.crystalC, { rough: 0.3 });
 }
 
 // ────────────────────── features: climbable structures ──────────────────────
@@ -1077,43 +1081,44 @@ export function generateWorld(seed = 1337): WorldData {
   bridge(out, 5.0 + 1.6, 2.0, 7.5, -2.0 + 0.8, 22.2);
   bridge(out, 7.5, -2.8, wmCX, wmCZ + 1.15, 23.0);
 
-  // ── Cloud staircase above the windmill — tight spacing for reliable single jumps ──
-  //   windmill cap (10, 30, -6) → c1 (7, 32, -4): 3.6m horiz, 2m up — EASY
-  //   c1 → c2: 3.6m horiz, 2m up — EASY
-  //   c2 → c3: 3.6m horiz, 2m up — EASY
-  //   c3 → c4: 2.8m horiz, 2m up — EASY
-  let cy = 32;
-  cloudPlatform(out,  7, cy, -4, 1.9);   // c1
-  cy += 2.0;                              // 34
-  cloudPlatform(out,  4, cy, -2, 1.7);   // c2
-  cy += 2.0;                              // 36
-  cloudPlatform(out,  1, cy,  0, 1.6);   // c3
-  cy += 2.0;                              // 38
-  cloudPlatform(out, -1, cy,  2, 1.6);   // c4
+  // ── ONE CLOUD AT THE TOP, REACHED VIA MOVING PLATFORM ONLY ──
+  // The whole cloud staircase has been replaced by a single timing-gated
+  // moving-platform ride. Player must:
+  //   1. Stand on the windmill cap (y=30)
+  //   2. Jump to the moving platform when it's at its LOW endpoint
+  //   3. Ride it up to the HIGH endpoint
+  //   4. Hop off onto the cloud
+  //   5. Climb the crystals to the goal
+  // The Player code carries riders so the platform doesn't slide out from
+  // under you mid-ride.
 
-  // ── PATH 8: MOVING PLATFORM (timing obstacle, optional shortcut)
-  //    Oscillates horizontally + vertically between near-windmill-cap (y=30.5)
-  //    and near-cloud-3 (y=36) at 7s period. Player can step on at either end,
-  //    skipping cloud 1 and cloud 2 entirely. Saves 2 jumps but requires timing.
-  //    All clients compute position from Date.now() so it's network-synced.
+  // Moving platform — endpoints chosen so each jump on/off is single-jump-easy
+  //   windmill cap (10, 30, -6) → mover LOW (6, 31, -4): 4.47m horiz, 1m up — EASY
+  //   mover HIGH (1, 37, 0) → the cloud (-1, 37, 2): 2.83m horiz, flat — EASY
   mover(out, {
-    ax: 8.5, ay: 30.5, az: -5,
-    bx: 1, by: 36, bz: 0,
-    hx: 0.9, hy: 0.1, hz: 0.9,
+    ax: 6, ay: 31, az: -4,
+    bx: 1, by: 37, bz: 0,
+    hx: 0.9, hy: 0.12, hz: 0.9,
     period: 7, phase: 0,
     color: C.roofGold,
   });
 
-  // ── Crystal spires at the top ──
-  //    Crystal top caps are landable. Heights tuned so c4 → crystal1 fits in
-  //    a double jump (apex ≈4.8m), but inter-crystal hops are EASY single jumps.
-  const cyTop = cy + 2.3;                                 // 40.3
-  crystal(out, -2, cyTop,         -2, 2.0);               // top cap y=42.4 — 4.4m up from c4 (DOUBLE)
-  crystal(out,  1, cyTop + 1.2,   -1, 2.0);               // top y=43.5 — 1.1m up, 3.2m horiz from c1 (EASY)
-  crystal(out, -1, cyTop + 2.5,    1, 2.0);               // top y=44.8 — 1.3m up, 2.8m horiz from c2 (EASY)
+  // The single cloud — landing pad after the moving platform
+  cloudPlatform(out, -1, 37, 2, 1.8);
+
+  // ── Crystal spires up to the goal ──
+  //    All gaps from the cloud and between crystals are EASY single jumps.
+  //    Crystal caps are now 1.6m squared (was 0.9m) so landing is forgiving.
+  //   cloud (-1, 37, 2) → crystal-1 cap (-1, 39.5, 1): 1.0m horiz, 2.5m up — EASY
+  //   crystal-1 → crystal-2: 2.24m horiz, 1.0m up — EASY
+  //   crystal-2 → crystal-3: 2.24m horiz, 1.0m up — EASY
+  //   crystal-3 → goal pad:   1.4m horiz, 0.5m up — TRIVIAL
+  crystal(out, -1, 38.0, 1,  1.5);   // cap top y ≈ 39.6
+  crystal(out,  1, 39.0, 0,  1.5);   // cap top y ≈ 40.6
+  crystal(out, -1, 40.0, -1, 1.5);   // cap top y ≈ 41.6
 
   // ── Final goal pad and orb ──
-  const goalY = cyTop + 4.5;                              // 44.8 → goal y ~ 45.4 (1.0m above crystal 3 cap)
+  const goalY = 42.0;
   solidBox(out, 0, goalY - 0.4, 0, 1.6, 0.2, 1.6, C.crystalA);
   decoCone(out, 0, goalY - 0.85, 0, 1.8, 0.7, C.crystalA, { rotY: 0, segments: 8 });
   out.goal = { x: 0, y: goalY + 0.6, z: 0 };

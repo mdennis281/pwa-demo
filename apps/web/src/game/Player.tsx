@@ -41,14 +41,29 @@ function onLadderVolume(x: number, y: number, z: number, ladders: Box[]): boolea
 }
 
 /** Compute a mover's current world position from time-synced wall clock.
- *  All clients agree because they all use the same Date.now()-based phase. */
+ *  Stores the previous position so Player can carry riders. */
 function tickMover(m: Mover): void {
+  m.prevX = m.x; m.prevY = m.y; m.prevZ = m.z;
   const t = Date.now() / 1000;
   const phase = ((t / m.period + m.phase) % 1 + 1) % 1; // 0..1
   const s = (1 - Math.cos(phase * Math.PI * 2)) / 2;    // 0..1..0 (sine ease)
   m.x = m.ax + (m.bx - m.ax) * s;
   m.y = m.ay + (m.by - m.ay) * s;
   m.z = m.az + (m.bz - m.az) * s;
+}
+
+/** Find which mover the player is standing on, if any. Returns -1 if none. */
+function moverUnderfoot(x: number, y: number, z: number, movers: Mover[]): number {
+  for (let i = 0; i < movers.length; i++) {
+    const m = movers[i];
+    const topY = m.y + m.hy;
+    if (Math.abs(y - topY) < 0.06 &&
+        Math.abs(x - m.x) < m.hx + PLAYER.rxz &&
+        Math.abs(z - m.z) < m.hz + PLAYER.rxz) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 export default function Player({
@@ -83,6 +98,7 @@ export default function Player({
     bufferedJumpUntil: -Infinity,
     wasJumpHeld: false,
     lastJumpAt: -Infinity,
+    mountedMoverIdx: -1,
   });
   const lastSendRef = useRef(0);
   const { camera } = useThree();
@@ -188,7 +204,16 @@ export default function Player({
 
     // ── update moving platform positions BEFORE physics so collisions see them ──
     for (const m of movers) tickMover(m);
-    // Compose a combined box list (movers are full Boxes with current positions)
+
+    // ── carry the player if they were standing on a mover last frame ──
+    if (s.mountedMoverIdx >= 0 && s.mountedMoverIdx < movers.length) {
+      const m = movers[s.mountedMoverIdx];
+      s.x += m.x - m.prevX;
+      s.y += m.y - m.prevY;
+      s.z += m.z - m.prevZ;
+    }
+
+    // Compose a combined box list (movers as Boxes at their current positions)
     const combinedBoxes = movers.length > 0
       ? [...boxes, ...movers as unknown as Box[]]
       : boxes;
@@ -217,6 +242,10 @@ export default function Player({
         s.jumpsUsed = 0;
         onJumpsChange?.(0);
       }
+      // Track which mover (if any) we're standing on — for next frame's carry.
+      s.mountedMoverIdx = moverUnderfoot(s.x, s.y, s.z, movers);
+    } else {
+      s.mountedMoverIdx = -1;
     }
 
     // Respawn if we fall off
