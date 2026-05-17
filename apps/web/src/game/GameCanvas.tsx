@@ -102,6 +102,8 @@ export default function GameCanvas({
             <Player
               variant={variant}
               boxes={world.boxes}
+              ladders={world.ladders}
+              movers={world.movers}
               spawn={spawn}
               onInput={sendInput}
               onJumpsChange={setJumpsUsed}

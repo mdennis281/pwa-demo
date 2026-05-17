@@ -1,7 +1,7 @@
 import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { generateWorld, type WorldData, type MeshDesc, type Windmill, type Flag, type SmokePuff } from './worldgen';
+import { generateWorld, type WorldData, type MeshDesc, type Windmill, type Flag, type SmokePuff, type Mover } from './worldgen';
 
 export { generateWorld };
 export type { WorldData };
@@ -149,11 +149,55 @@ function GoalOrb({ x, y, z }: { x: number; y: number; z: number }) {
   );
 }
 
+/** Render a ladder volume's "front" indicator (a soft glow strip).
+ *  The volume is already in the mesh list as a deco strip; we just render the
+ *  wooden frame here for visual clarity. */
+function LadderHint({ box }: { box: { x: number; y: number; z: number; hx: number; hy: number; hz: number } }) {
+  // Faint glow box matching the climb volume
+  return (
+    <mesh position={[box.x, box.y, box.z]}>
+      <boxGeometry args={[box.hx * 0.7, box.hy * 2, box.hz * 0.7]} />
+      <meshStandardMaterial color="#1a1a1a" emissive="#fbbf24" emissiveIntensity={0.08} transparent opacity={0.15} depthWrite={false} />
+    </mesh>
+  );
+}
+
+/** Moving platform — time-synced via wall clock so every client sees the same
+ *  position. The Player physics reads the same Date.now() and processes pushes
+ *  client-side, so visuals and collisions stay aligned. */
+function MoverNode({ mover }: { mover: Mover }) {
+  const ref = useRef<THREE.Group>(null);
+  useFrame(() => {
+    if (!ref.current) return;
+    const t = Date.now() / 1000;
+    const phase = ((t / mover.period + mover.phase) % 1 + 1) % 1;
+    const s = (1 - Math.cos(phase * Math.PI * 2)) / 2;
+    ref.current.position.x = mover.ax + (mover.bx - mover.ax) * s;
+    ref.current.position.y = mover.ay + (mover.by - mover.ay) * s;
+    ref.current.position.z = mover.az + (mover.bz - mover.az) * s;
+  });
+  return (
+    <group ref={ref} position={[mover.x, mover.y, mover.z]}>
+      <mesh castShadow receiveShadow>
+        <boxGeometry args={[mover.hx * 2, mover.hy * 2, mover.hz * 2]} />
+        <meshStandardMaterial color={mover.color} roughness={0.7} />
+      </mesh>
+      {/* Glowing edge so the player can spot it from far away */}
+      <mesh position={[0, mover.hy + 0.04, 0]}>
+        <boxGeometry args={[mover.hx * 2 + 0.05, 0.08, mover.hz * 2 + 0.05]} />
+        <meshStandardMaterial color="#fde047" emissive="#facc15" emissiveIntensity={0.8} />
+      </mesh>
+    </group>
+  );
+}
+
 export default function World({ data }: { data: WorldData }) {
   const meshNodes = useMemo(() => data.meshes.map((m, i) => <Mesh key={i} m={m} />), [data]);
   return (
     <>
       {meshNodes}
+      {data.ladders.map((box, i) => <LadderHint key={`l-${i}`} box={box} />)}
+      {data.movers.map((mover, i) => <MoverNode key={`mv-${i}`} mover={mover} />)}
       {data.windmills.map((wm, i) => <WindmillNode key={`wm-${i}`} wm={wm} />)}
       {data.flags.map((f, i) => <FlagNode key={`fl-${i}`} f={f} />)}
       {data.smoke.map((s, i) => <Smoke key={`sm-${i}`} p={s} />)}

@@ -3,19 +3,22 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import Character from './Character';
 import { input, consumeJump } from './controls/input';
-import { rayHitDistance, stepPlayer } from './physics';
+import { PLAYER, rayHitDistance, stepPlayer } from './physics';
 import type { Box } from './physics';
+import type { Mover } from './worldgen';
 import type { LocalInput } from '@pwa-demo/shared';
 
 const MOVE_SPEED = 7.0;
 const AIR_CONTROL = 0.55;          // 0..1 multiplier on air-direction authority
-const JUMP_SPEED = 13;             // ~3.5m apex
-const DOUBLE_JUMP_SPEED = 10;      // adds ~2m at apex if perfectly timed
+const JUMP_SPEED = 13;             // ~3.0m apex (squared/56)
+const DOUBLE_JUMP_SPEED = 10;      // adds ~1.8m at apex if perfectly timed
 const GRAVITY = 28;
 const VAR_JUMP_CUT = 0.45;         // multiplier when releasing jump early
 const COYOTE_MS = 120;
 const BUFFER_MS = 110;
 const MAX_JUMPS = 2;
+const CLIMB_SPEED = 4;             // ladder vertical speed (m/s)
+const LADDER_RELEASE_MS = 220;     // after jumping off a ladder, gravity stays on this long
 
 const CAMERA_DIST = 6.5;
 const CAMERA_LERP_TAU = 0.07;
@@ -25,9 +28,34 @@ const SEND_HZ = 20;
 
 const _camTarget = new THREE.Vector3();
 
+function onLadderVolume(x: number, y: number, z: number, ladders: Box[]): boolean {
+  for (const l of ladders) {
+    if (Math.abs(x - l.x) < l.hx + PLAYER.rxz &&
+        Math.abs(z - l.z) < l.hz + PLAYER.rxz &&
+        y + PLAYER.height > l.y - l.hy &&
+        y < l.y + l.hy) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Compute a mover's current world position from time-synced wall clock.
+ *  All clients agree because they all use the same Date.now()-based phase. */
+function tickMover(m: Mover): void {
+  const t = Date.now() / 1000;
+  const phase = ((t / m.period + m.phase) % 1 + 1) % 1; // 0..1
+  const s = (1 - Math.cos(phase * Math.PI * 2)) / 2;    // 0..1..0 (sine ease)
+  m.x = m.ax + (m.bx - m.ax) * s;
+  m.y = m.ay + (m.by - m.ay) * s;
+  m.z = m.az + (m.bz - m.az) * s;
+}
+
 export default function Player({
   variant,
   boxes,
+  ladders,
+  movers,
   spawn,
   onInput,
   onDoubleJump,
@@ -35,6 +63,8 @@ export default function Player({
 }: {
   variant: number;
   boxes: Box[];
+  ladders: Box[];
+  movers: Mover[];
   spawn: { x: number; y: number; z: number };
   onInput: (i: LocalInput) => void;
   onDoubleJump?: () => void;
@@ -52,6 +82,7 @@ export default function Player({
     lastGroundedAt: -Infinity,
     bufferedJumpUntil: -Infinity,
     wasJumpHeld: false,
+    lastJumpAt: -Infinity,
   });
   const lastSendRef = useRef(0);
   const { camera } = useThree();
@@ -98,23 +129,36 @@ export default function Player({
       s.vz = s.vz * (1 - k * cdt * 6) + desiredVz * (k * cdt * 6);
     }
 
+    // ── ladder check (true gravity-suppressed climbing volume) ──
+    const inLadderVolume = onLadderVolume(s.x, s.y, s.z, ladders);
+    const ladderActive = inLadderVolume && now - s.lastJumpAt > LADDER_RELEASE_MS;
+
     // ── jump press handling (with buffer + coyote + double jump) ──
     if (consumeJump()) {
       s.bufferedJumpUntil = now + BUFFER_MS;
     }
     const canCoyote = s.grounded || now - s.lastGroundedAt < COYOTE_MS;
     if (now < s.bufferedJumpUntil) {
-      if (canCoyote && s.jumpsUsed === 0) {
+      if (ladderActive) {
+        // Jump off the ladder: pop upward, suspend ladder for LADDER_RELEASE_MS
         s.vy = JUMP_SPEED;
         s.jumpsUsed = 1;
         s.grounded = false;
+        s.lastJumpAt = now;
+        s.bufferedJumpUntil = -Infinity;
+        onJumpsChange?.(s.jumpsUsed);
+      } else if (canCoyote && s.jumpsUsed === 0) {
+        s.vy = JUMP_SPEED;
+        s.jumpsUsed = 1;
+        s.grounded = false;
+        s.lastJumpAt = now;
         s.bufferedJumpUntil = -Infinity;
         onJumpsChange?.(s.jumpsUsed);
       } else if (s.jumpsUsed < MAX_JUMPS) {
-        // double jump: SET if it would be a gain, else still reset upward
         s.vy = Math.max(s.vy, DOUBLE_JUMP_SPEED);
         s.jumpsUsed += 1;
         s.grounded = false;
+        s.lastJumpAt = now;
         s.bufferedJumpUntil = -Infinity;
         onDoubleJump?.();
         onJumpsChange?.(s.jumpsUsed);
@@ -123,18 +167,39 @@ export default function Player({
 
     // ── variable jump height (release while rising → cut vy) ──
     const wasHeld = s.wasJumpHeld;
-    if (wasHeld && !input.jumpHeld && s.vy > 0) {
+    if (wasHeld && !input.jumpHeld && s.vy > 0 && !ladderActive) {
       s.vy *= VAR_JUMP_CUT;
     }
     s.wasJumpHeld = input.jumpHeld;
+
+    // ── ladder override (post-jump check) ──
+    // Re-evaluate, since jump-while-on-ladder set lastJumpAt and disabled ladder.
+    const ladderActiveNow = inLadderVolume && now - s.lastJumpAt > LADDER_RELEASE_MS;
+    if (ladderActiveNow) {
+      s.vx = 0;
+      s.vz = 0;
+      s.vy = input.forward * CLIMB_SPEED;
+      // While on a ladder you have your jumps back (you can hop to a side platform)
+      if (s.jumpsUsed !== 0) {
+        s.jumpsUsed = 0;
+        onJumpsChange?.(0);
+      }
+    }
+
+    // ── update moving platform positions BEFORE physics so collisions see them ──
+    for (const m of movers) tickMover(m);
+    // Compose a combined box list (movers are full Boxes with current positions)
+    const combinedBoxes = movers.length > 0
+      ? [...boxes, ...movers as unknown as Box[]]
+      : boxes;
 
     // ── physics ──
     const result = stepPlayer({
       feetX: s.x, feetY: s.y, feetZ: s.z,
       vx: s.vx, vy: s.vy, vz: s.vz,
       dt: cdt,
-      gravity: GRAVITY,
-      boxes,
+      gravity: ladderActiveNow ? 0 : GRAVITY,
+      boxes: combinedBoxes,
     });
     const wasGrounded = s.grounded;
     s.x = result.feetX; s.y = result.feetY; s.z = result.feetZ;
