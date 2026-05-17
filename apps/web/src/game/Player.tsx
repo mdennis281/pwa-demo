@@ -200,6 +200,11 @@ export default function Player({
       dt: cdt,
       gravity: ladderActiveNow ? 0 : GRAVITY,
       boxes: combinedBoxes,
+      // While climbing a ladder, ignore every other box's collision. We only
+      // move vertically (vx=vz=0) so this can't drive us through anything
+      // unintended, and it prevents the destination platform from horizontally
+      // shoving us off the top of the ladder during the climb-through phase.
+      skipBoxCollisions: ladderActiveNow,
     });
     const wasGrounded = s.grounded;
     s.x = result.feetX; s.y = result.feetY; s.z = result.feetZ;

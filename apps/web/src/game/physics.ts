@@ -28,6 +28,10 @@ export function stepPlayer(opts: {
   dt: number;
   gravity: number;
   boxes: Box[];
+  /** When true, skip all box collisions (used by ladder climbing so the
+   *  player can pass through the underside of the destination platform without
+   *  being head-bumped or pushed sideways). */
+  skipBoxCollisions?: boolean;
 }): {
   feetX: number; feetY: number; feetZ: number;
   vx: number; vy: number; vz: number;
@@ -42,21 +46,23 @@ export function stepPlayer(opts: {
   feetX += vx * opts.dt;
   feetZ += vz * opts.dt;
 
-  const headY = feetY + PLAYER.height;
-  for (const b of opts.boxes) {
-    const overlapsY = headY > b.y - b.hy && feetY < b.y + b.hy;
-    if (!overlapsY) continue;
-    const dx = feetX - b.x;
-    const dz = feetZ - b.z;
-    const px = b.hx + PLAYER.rxz - Math.abs(dx);
-    const pz = b.hz + PLAYER.rxz - Math.abs(dz);
-    if (px > 0 && pz > 0) {
-      if (px < pz) {
-        feetX += dx >= 0 ? px : -px;
-        vx = 0;
-      } else {
-        feetZ += dz >= 0 ? pz : -pz;
-        vz = 0;
+  if (!opts.skipBoxCollisions) {
+    const headY = feetY + PLAYER.height;
+    for (const b of opts.boxes) {
+      const overlapsY = headY > b.y - b.hy && feetY < b.y + b.hy;
+      if (!overlapsY) continue;
+      const dx = feetX - b.x;
+      const dz = feetZ - b.z;
+      const px = b.hx + PLAYER.rxz - Math.abs(dx);
+      const pz = b.hz + PLAYER.rxz - Math.abs(dz);
+      if (px > 0 && pz > 0) {
+        if (px < pz) {
+          feetX += dx >= 0 ? px : -px;
+          vx = 0;
+        } else {
+          feetZ += dz >= 0 ? pz : -pz;
+          vz = 0;
+        }
       }
     }
   }
@@ -75,7 +81,7 @@ export function stepPlayer(opts: {
   // Find the highest platform top we crossed downward; that's where we land.
   let bestLandY = -Infinity;
   let bestCeilY = Infinity;
-  for (const b of opts.boxes) {
+  if (!opts.skipBoxCollisions) for (const b of opts.boxes) {
     const topY = b.y + b.hy;
     const botY = b.y - b.hy;
     const overlapsXZ =

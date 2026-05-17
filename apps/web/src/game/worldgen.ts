@@ -155,11 +155,17 @@ function decoSphere(out: WorldData, x: number, y: number, z: number, radius: num
 
 /** Create a TRUE LADDER: gravity-free volume the player climbs by holding W,
  *  plus decorative wood frame and rungs. Volume spans baseY → topY along the
- *  vertical axis. The volume should reach at least the destination platform's
- *  top so the player exits onto solid ground. */
+ *  vertical axis. CRUCIAL: the volume extends EXTRA above topY so the player
+ *  exits ABOVE the destination platform and falls cleanly onto it (rather
+ *  than being shoved sideways during the climb-through-platform phase). */
+const LADDER_OVERSHOOT = 1.2;
+
 function ladderVolume(out: WorldData, opts: {
   cx: number; cz: number;
-  baseY: number; topY: number;
+  /** y of the bottom of the ladder */
+  baseY: number;
+  /** y of the destination platform top — the volume extends LADDER_OVERSHOOT above this */
+  topY: number;
   /** orientation — face the ladder away from this normal direction. Player
    *  approaches from +normal. Volume is thin along normal, wide perpendicular. */
   faceX: number; faceZ: number;
@@ -167,22 +173,21 @@ function ladderVolume(out: WorldData, opts: {
 }) {
   const w = (opts.width ?? 0.9) / 2;
   const perp: [number, number] = [-opts.faceZ, opts.faceX];
-  const cy = (opts.baseY + opts.topY) / 2;
-  const hy = (opts.topY - opts.baseY) / 2;
-  // Volume — small thickness along face normal, wide perpendicular
+  const volTopY = opts.topY + LADDER_OVERSHOOT;
+  const cy = (opts.baseY + volTopY) / 2;
+  const hy = (volTopY - opts.baseY) / 2;
   const halfThickness = 0.35;
   const hxVol = Math.abs(opts.faceX) > 0.5 ? halfThickness : w;
   const hzVol = Math.abs(opts.faceZ) > 0.5 ? halfThickness : w;
   out.ladders.push({ x: opts.cx, y: cy, z: opts.cz, hx: hxVol, hy, hz: hzVol });
 
-  // Two vertical wood posts (visual only — solid wood frame on either side)
+  // Two vertical wood posts (visual only)
   for (const sign of [1, -1] as const) {
     const px = opts.cx + perp[0] * w * sign;
     const pz = opts.cz + perp[1] * w * sign;
-    decoCyl(out, px, cy, pz, 0.06, opts.topY - opts.baseY + 0.2, C.wood);
+    decoCyl(out, px, (opts.baseY + opts.topY) / 2, pz, 0.06, opts.topY - opts.baseY + 0.2, C.wood);
   }
-  // Rungs every 0.5m (visual only — gravity is off inside the volume,
-  // so we don't need physical step boxes any more)
+  // Rungs every 0.5m up to (but not past) opts.topY — purely visual
   const rungSpacing = 0.5;
   const nRungs = Math.max(2, Math.floor((opts.topY - opts.baseY) / rungSpacing));
   for (let i = 1; i <= nRungs; i++) {
@@ -190,8 +195,8 @@ function ladderVolume(out: WorldData, opts: {
     const rotY = Math.atan2(opts.faceZ, opts.faceX) + Math.PI / 2;
     decoBox(out, opts.cx, y, opts.cz, w - 0.05, 0.04, 0.03, C.woodLight, { rotY });
   }
-  // Decorative "front" indicator — a faint glow strip on the climb side
-  decoBox(out, opts.cx + opts.faceX * 0.36, cy, opts.cz + opts.faceZ * 0.36, hxVol * 0.6, hy, hzVol * 0.6, '#000000', { emissive: '#fbbf24', emissiveIntensity: 0.05, cast: false });
+  // Faint emissive "climb here" hint along the front
+  decoBox(out, opts.cx + opts.faceX * 0.36, (opts.baseY + opts.topY) / 2, opts.cz + opts.faceZ * 0.36, hxVol * 0.6, (opts.topY - opts.baseY) / 2, hzVol * 0.6, '#000000', { emissive: '#fbbf24', emissiveIntensity: 0.05, cast: false });
 }
 
 /** Spawn a moving platform between two world-space endpoints. */
@@ -236,9 +241,12 @@ function faceVec(face: 'north' | 'south' | 'east' | 'west'): [number, number] {
   }
 }
 
-/** A decorative cottage. Walls + pyramid roof are solid colliders; player
- *  walks around them, never on top. Has door, glowing window(s), chimney
- *  with smoke, and an optional little garden patch out front. */
+/** A cottage with a FLAT WALKABLE ROOF and a small decorative pyramid cap.
+ *  - Walls: 2.5m tall (one comfortable single jump from ground)
+ *  - Roof: flat box, slightly wider than walls, walkable
+ *  - Roof cap: small flatter pyramid in the center, NO collider so it doesn't
+ *    push you off the roof when you walk near it
+ *  Designed so you can hop up onto any cottage. */
 function cottage(out: WorldData, opts: CottageOpts) {
   const { cx, cz, baseY, wallW, wallD, wallH, roofH, wallColor, roofColor } = opts;
   const wallCY = baseY + wallH / 2;
@@ -247,25 +255,29 @@ function cottage(out: WorldData, opts: CottageOpts) {
   // Walls
   solidBox(out, cx, wallCY, cz, wallW / 2, wallH / 2, wallD / 2, wallColor, { rough: 0.9 });
 
-  // Decorative trim board around the wall top
-  decoBox(out, cx, wallTop + 0.05, cz, wallW / 2 + 0.1, 0.06, wallD / 2 + 0.1, C.woodLight, { rough: 0.9 });
+  // Flat roof platform — walkable. Slightly wider than walls (overhang).
+  const roofPlatHy = 0.08;
+  const roofPlatHx = wallW / 2 + 0.25;
+  const roofPlatHz = wallD / 2 + 0.25;
+  const roofTopY = wallTop + roofPlatHy * 2;        // top surface of the roof
+  solidBox(out, cx, wallTop + roofPlatHy, cz, roofPlatHx, roofPlatHy, roofPlatHz, C.woodLight, { rough: 0.9 });
 
-  // Pyramid roof — solid collider so the player can't pass through it;
-  // its bounding AABB just covers the cottage footprint.
-  const roofR = Math.max(wallW, wallD) / 2;
-  const roofCY = wallTop + 0.12 + roofH / 2;
-  // visual
-  decoCone(out, cx, roofCY, cz, roofR * Math.SQRT2, roofH, roofColor, { rotY: Math.PI / 4, segments: 4 });
-  // collider — bounding AABB of the pyramid base
-  out.boxes.push({ x: cx, y: roofCY, z: cz, hx: roofR, hy: roofH / 2, hz: roofR });
+  // Decorative trim around the roof edge
+  decoBox(out, cx, roofTopY + 0.04, cz, roofPlatHx + 0.05, 0.04, roofPlatHz + 0.05, C.woodDark, { cast: false });
 
-  // Chimney + animated smoke puff
+  // Small flatter pyramid cap in the center — decorative, no collider so the
+  // player can walk all the way around it on the roof.
+  const capR = Math.min(wallW, wallD) / 2 - 0.3;     // smaller than the roof
+  const capH = roofH;                                  // flatter than before (was 1.5+, now ~1.0)
+  decoCone(out, cx, roofTopY + capH / 2, cz, capR * Math.SQRT2, capH, roofColor, { rotY: Math.PI / 4, segments: 4 });
+
+  // Chimney + animated smoke puff (on the flat roof, off to one side)
   const chX = cx + wallW / 4;
   const chZ = cz - wallD / 4;
-  const chY = wallTop + 0.5;
-  decoBox(out, chX, chY, chZ, 0.22, 0.6, 0.22, '#7f1d1d');
-  decoBox(out, chX, chY + 0.62, chZ, 0.27, 0.05, 0.27, '#451a03');
-  out.smoke.push({ x: chX, y: chY + 1.2, z: chZ });
+  const chY = roofTopY + 0.5;
+  decoBox(out, chX, chY, chZ, 0.22, 0.5, 0.22, '#7f1d1d');
+  decoBox(out, chX, chY + 0.52, chZ, 0.27, 0.05, 0.27, '#451a03');
+  out.smoke.push({ x: chX, y: chY + 1.0, z: chZ });
 
   // Door
   const [dnx, dnz] = faceVec(opts.doorFace);
@@ -502,7 +514,6 @@ function well(out: WorldData, cx: number, cz: number, baseY = 0) {
     const sz = cz + Math.sin(a) * rimR;
     decoBox(out, sx, baseY + 0.4, sz, 0.18, 0.4, 0.18, C.cobble, { rotY: a });
   }
-  // cylindrical AABB block (approximation) so player can lean against it
   out.boxes.push({ x: cx, y: baseY + 0.4, z: cz, hx: rimR * 0.75, hy: 0.4, hz: rimR * 0.75 });
   // dark water disc
   decoCyl(out, cx, baseY + 0.6, cz, rimR * 0.7, 0.04, C.water, { segments: 18, emissive: '#1e3a8a', emissiveIntensity: 0.15 });
@@ -510,8 +521,8 @@ function well(out: WorldData, cx: number, cz: number, baseY = 0) {
   for (const [sx, sz] of [[-rimR * 0.8, -rimR * 0.8], [rimR * 0.8, -rimR * 0.8], [-rimR * 0.8, rimR * 0.8], [rimR * 0.8, rimR * 0.8]] as const) {
     decoCyl(out, cx + sx, baseY + 1.6, cz + sz, 0.07, 2.0, C.wood);
   }
-  // pyramid roof
-  decoCone(out, cx, baseY + 3.0, cz, rimR * 1.4, 0.9, C.roofRed, { rotY: Math.PI / 4, segments: 4 });
+  // flatter pyramid roof (was 0.9 tall, now 0.55)
+  decoCone(out, cx, baseY + 2.85, cz, rimR * 1.4, 0.55, C.roofRed, { rotY: Math.PI / 4, segments: 4 });
   // crank handle (decorative)
   decoCyl(out, cx, baseY + 2.4, cz, 0.05, 1.8, C.wood, { rotY: Math.PI / 2 });
   decoSphere(out, cx + 0.9, baseY + 2.4, cz, 0.1, C.wood);
@@ -635,15 +646,11 @@ function spiralTower(out: WorldData, cx: number, cz: number, baseY: number, topY
     decoBox(out, cx + Math.cos(a) * platformHx * 0.93, topY + 0.25, cz + Math.sin(a) * platformHx * 0.93, 0.18, 0.18, 0.18, C.cobbleEdge, { rotY: -a });
   }
 
-  // Small central spire — fully off-center walkable ring so 5 bridges can land cleanly.
-  // Spire is collidable as a 1×1×1.8 AABB at the tower center. Walkable ring on
-  // the platform from radius 1.0+0.4=1.4 to platformHx-0.4=2.4 → 1m wide ring.
-  const spireR = 0.7;
-  const spireH = 1.8;
-  decoCone(out, cx, topY + spireH / 2, cz, spireR * Math.SQRT2, spireH, C.roofPlum, { rotY: Math.PI / 4, segments: 4 });
-  out.boxes.push({ x: cx, y: topY + spireH / 2, z: cz, hx: spireR, hy: spireH / 2, hz: spireR });
-  // Flag on top of the spire
-  decoCyl(out, cx, topY + spireH + 0.6, cz, 0.05, 1.2, C.wood);
+  // No central spire — the top is open for all bridges to land cleanly.
+  // Just a tall flag pole in the middle so the tower is visually distinct.
+  decoCyl(out, cx, topY + 1.5, cz, 0.06, 3.0, C.wood);
+  // Small lantern at top of the pole
+  decoSphere(out, cx, topY + 3.1, cz, 0.18, C.lanternGlow, { emissive: C.lanternGlow, emissiveIntensity: 1.6 });
 }
 
 /** Stone tower with exterior wooden stairs spiraling once around it.
@@ -680,9 +687,9 @@ function outerScaffold(out: WorldData, cx: number, cz: number, topY: number, col
 
   // Top platform — small footprint inside the spiral's radius so steps don't push out
   solidBox(out, cx, topY - 0.05, cz, platformHx, 0.05, platformHx, C.cobbleEdge);
-  // Decorative roof — no collider so players jumping on platform don't head-bump it
-  decoCone(out, cx, topY + 1.0, cz, platformHx + 0.6, 1.6, C.roofCoral, { rotY: Math.PI / 4, segments: 4 });
-  // Window halfway up
+  // No roof — clear sky above. Just a flag pole at the center.
+  decoCyl(out, cx, topY + 0.8, cz, 0.05, 1.4, C.wood);
+  // Window halfway up the tower body
   decoBox(out, cx, topY * 0.55, cz + tw + 0.01, 0.35, 0.3, 0.04, C.windowGlow, { emissive: C.windowGlow, emissiveIntensity: 0.55 });
   decoBox(out, cx, topY * 0.55, cz + tw + 0.01, 0.4, 0.35, 0.05, C.windowFrame);
 }
@@ -706,24 +713,21 @@ function watchtower(out: WorldData, cx: number, cz: number, topY: number) {
   for (const side of [[-w, 0, 1, 0], [w, 0, 1, 0], [0, -w, 0, 1], [0, w, 0, 1]] as const) {
     decoBox(out, cx + side[0], topY * 0.4, cz + side[1], 0.05, 0.6, 0.05, C.wood, { rotY: side[2] === 1 ? 0.6 : -0.6 });
   }
-  // Top lookout platform — thin so it doesn't make the ladder top a head-bump trap
+  // Top lookout platform — thin so it doesn't head-bump anyone climbing the ladder
   const lookoutTopY = topY + 0.1;
   solidBox(out, cx, lookoutTopY - 0.05, cz, w + 0.6, 0.05, w + 0.6, C.plank, { rough: 0.85 });
-  // Low railing posts
+  // Low railing posts (decorative)
   for (const [sx, sz] of [[-w, -w], [w, -w], [-w, w], [w, w]] as const) {
     decoCyl(out, cx + sx, lookoutTopY + 0.4, cz + sz, 0.05, 0.7, C.wood);
   }
-  // Conical wooden roof — solid AABB just above the head height of a player on the platform
-  // platform top = lookoutTopY, player head = lookoutTopY + 1.6. Place roof bottom at lookoutTopY + 1.8.
-  const roofBottomY = lookoutTopY + 1.8;
-  decoCone(out, cx, roofBottomY + 0.9, cz, w + 1.0, 1.8, C.roofForest, { rotY: Math.PI / 4, segments: 4 });
-  out.boxes.push({ x: cx, y: roofBottomY + 0.9, z: cz, hx: w + 0.4, hy: 0.9, hz: w + 0.4 });
-  // Watch-fire on top of roof
-  decoCone(out, cx, roofBottomY + 2.0, cz, 0.2, 0.4, C.lanternGlow, { segments: 6 });
+  // Watch-fire on a slim pole at center (no roof — clear sky above the lookout)
+  decoCyl(out, cx, lookoutTopY + 0.8, cz, 0.05, 1.4, C.wood);
+  decoSphere(out, cx, lookoutTopY + 1.6, cz, 0.18, C.lanternGlow, { emissive: C.lanternGlow, emissiveIntensity: 1.4 });
 
   // TRUE LADDER on the +z face. Player approaches from south (positive z) and
-  // climbs from y=0 to y=lookoutTopY. Volume goes slightly past the platform so
-  // they overshoot ~0.3m and settle onto the deck.
+  // climbs from ground to the lookout deck. ladderVolume internally extends the
+  // volume 1.2m above lookoutTopY so the climb-through-platform phase doesn't
+  // get pushed off by the platform's underside.
   ladderVolume(out, {
     cx,
     cz: cz + w + 0.25,
@@ -752,9 +756,9 @@ function tavern(out: WorldData, cx: number, cz: number, baseY = 0): { landingX: 
   // Second-floor (narrower) walls — decorative silhouette
   const h2 = 1.8;
   solidBox(out, cx, baseY + h1 + 0.12 + h2 / 2, cz, w / 2 - 0.3, h2 / 2, d / 2 - 0.3, C.wallOlive, { rough: 0.9 });
-  // Pyramid roof — solid collider
+  // Flatter pyramid roof — solid collider
   const roofR = w / 2 - 0.3;
-  const roofH = 1.6;
+  const roofH = 1.0;        // was 1.6 — flatter
   const roofCY = baseY + h1 + 0.12 + h2 + 0.12 + roofH / 2;
   decoCone(out, cx, roofCY, cz, roofR * Math.SQRT2, roofH, C.roofRed, { rotY: Math.PI / 4, segments: 4 });
   out.boxes.push({ x: cx, y: roofCY, z: cz, hx: roofR, hy: roofH / 2, hz: roofR });
@@ -891,7 +895,9 @@ export function generateWorld(seed = 1337): WorldData {
   for (const c of cottages) {
     cottage(out, {
       cx: c.cx, cz: c.cz, baseY: 0,
-      wallW: 4.5, wallD: 3.5, wallH: 2.8, roofH: 1.5,
+      wallW: 4.0, wallD: 4.0,           // square footprint so the roof cap doesn't overhang
+      wallH: 2.5,                       // single jump from ground (apex 3m) clears this
+      roofH: 1.0,                       // flatter decorative cap
       wallColor: c.wall, roofColor: c.roof,
       doorFace: c.door, hasGarden: c.garden,
     });
