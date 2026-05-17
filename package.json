@@ -1,0 +1,28 @@
+{
+  "name": "pwa-demo",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n web,api -c cyan,magenta \"npm -w apps/web run dev\" \"npm -w apps/server run dev\"",
+    "build": "npm -w packages/shared run build && npm -w apps/web run build && npm -w apps/server run build",
+    "start": "node apps/server/dist/index.js",
+    "gen:vapid": "node scripts/gen-vapid.mjs",
+    "gen:assets": "pwa-assets-generator --config pwa-assets.config.ts",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:push": "npm -w apps/server run db:push"
+  },
+  "devDependencies": {
+    "@vite-pwa/assets-generator": "^1.0.2",
+    "concurrently": "^9.1.0",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

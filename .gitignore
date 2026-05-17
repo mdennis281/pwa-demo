@@ -128,6 +128,19 @@ dist
 # Stores VSCode versions used for testing VSCode extensions
 .vscode-test
 
+# Generated PWA assets (regen via `npm run gen:assets`)
+apps/web/public/pwa-*.png
+apps/web/public/apple-touch-icon-*.png
+apps/web/public/maskable-icon-*.png
+apps/web/public/favicon.ico
+
+# Build outputs
+apps/*/dist/
+packages/*/dist/
+
+# Local agent state
+.claude/settings.local.json
+
 # yarn v2
 .yarn/cache
 .yarn/unplugged
