@@ -2,11 +2,12 @@ import { Link } from 'react-router';
 import CapabilityTable from '../components/CapabilityTable';
 
 const CARDS = [
-  { to: '/game',     title: 'Tower (multiplayer game)', body: '3D climbing game with lobbies, characters, and live scoring.' },
-  { to: '/worker',   title: 'Web Worker',         body: 'Run heavy compute off the main thread. Side-by-side comparison.' },
-  { to: '/status',   title: 'Live status page',   body: 'Real-time list of every connected client, via socket.io.' },
-  { to: '/push',     title: 'Web Push',           body: 'Subscribe to push and receive a notification — even with the tab closed.' },
-  { to: '/manifest', title: 'Install playground', body: 'Inspect the manifest, install state, and display mode in real time.' },
+  { to: '/game',       title: 'Tower (multiplayer game)', body: '3D climbing game with lobbies, characters, and live scoring.' },
+  { to: '/worker',     title: 'Web Worker',         body: 'Run heavy compute off the main thread. Side-by-side comparison.' },
+  { to: '/indexed-db', title: 'IndexedDB',           body: 'Benchmark Memory vs LocalStorage vs IndexedDB across 5 query types. See exactly how much data each backend has to scan.' },
+  { to: '/status',     title: 'Live status page',   body: 'Real-time list of every connected client, via socket.io.' },
+  { to: '/push',       title: 'Web Push',           body: 'Subscribe to push and receive a notification — even with the tab closed.' },
+  { to: '/manifest',   title: 'Install playground', body: 'Inspect the manifest, install state, and display mode in real time.' },
 ];
 
 export default function Home() {

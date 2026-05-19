@@ -10,11 +10,15 @@ import {
   createLobby,
   getLobbyOf,
   joinLobby,
+  kickPlayer,
   leaveLobby,
   listLobbies,
   lobbyToState,
+  setPaused,
   updateInput,
+  updateLobbyConfig,
 } from './lobby.js';
+import { serverMetrics } from '../metrics.js';
 
 const BROWSER_ROOM = 'lobby:browser';
 const TICK_HZ = 20;
@@ -45,6 +49,7 @@ function startTickLoop(io: Server<ClientToServerEvents, ServerToClientEvents>): 
   const interval = setInterval(() => {
     const now = Date.now();
     for (const lobby of allLobbies()) {
+      if (lobby.paused) continue; // skip snapshot when paused — clients freeze
       const players: PlayerSnapshot[] = [...lobby.players.values()].map((p) => ({
         id: p.socketId,
         displayName: p.displayName,
@@ -57,21 +62,30 @@ function startTickLoop(io: Server<ClientToServerEvents, ServerToClientEvents>): 
         z: p.z,
         yaw: p.yaw,
         state: p.state,
+        ping: getPingFn(p.socketId),
       }));
       const snap: GameSnapshot = { lobbyId: lobby.id, t: now, players };
+      const snapStr = JSON.stringify(snap);
       io.to(lobbyRoom(lobby.id)).emit('game:snapshot', snap);
+      serverMetrics.txEvents++;
+      serverMetrics.txBytesEst += snapStr.length;
     }
   }, Math.floor(1000 / TICK_HZ));
   return () => clearInterval(interval);
 }
 
 let stopTick: (() => void) | null = null;
+let getPingFn: (socketId: string) => number | null = () => null;
 
 export function attachGame(
   io: Server<ClientToServerEvents, ServerToClientEvents>,
   socket: Socket<ClientToServerEvents, ServerToClientEvents>,
+  getPing: (socketId: string) => number | null,
 ): void {
-  if (!stopTick) stopTick = startTickLoop(io);
+  if (!stopTick) {
+    getPingFn = getPing;
+    stopTick = startTickLoop(io);
+  }
 
   socket.on('lobby:browser:join', () => {
     socket.join(BROWSER_ROOM);
@@ -139,7 +153,35 @@ export function attachGame(
   });
 
   socket.on('game:input', (input) => {
+    const lobby = getLobbyOf(socket.id);
+    if (lobby?.paused) return; // ignore inputs while paused
     updateInput(socket.id, input);
+  });
+
+  socket.on('admin:action', (action, cb) => {
+    if (action.type === 'kick') {
+      const result = kickPlayer(socket.id, action.targetId);
+      if (!result.ok) { cb({ ok: false, error: result.error }); return; }
+      // Force the kicked socket out of the lobby room and notify them
+      io.to(action.targetId).socketsLeave(lobbyRoom(result.lobbyId));
+      io.to(action.targetId).emit('lobby:state', null);
+      broadcastLobbyState(io, result.lobbyId);
+      broadcastBrowser(io);
+      cb({ ok: true });
+    } else if (action.type === 'pause') {
+      const result = setPaused(socket.id, action.paused);
+      if (!result.ok) { cb({ ok: false, error: result.error }); return; }
+      broadcastLobbyState(io, result.lobby.id);
+      cb({ ok: true });
+    } else if (action.type === 'config') {
+      const result = updateLobbyConfig(socket.id, action);
+      if (!result.ok) { cb({ ok: false, error: result.error }); return; }
+      broadcastLobbyState(io, result.lobby.id);
+      broadcastBrowser(io);
+      cb({ ok: true });
+    } else {
+      cb({ ok: false, error: 'unknown action' });
+    }
   });
 
   socket.on('disconnect', () => {

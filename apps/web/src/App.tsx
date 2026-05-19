@@ -8,6 +8,7 @@ const Status = lazy(() => import('./routes/Status'));
 const Push = lazy(() => import('./routes/Push'));
 const Manifest = lazy(() => import('./routes/Manifest'));
 const Game = lazy(() => import('./routes/Game'));
+const IndexedDBDemo = lazy(() => import('./routes/IndexedDB'));
 
 export default function App() {
   return (
@@ -58,6 +59,14 @@ export default function App() {
           element={
             <Suspense fallback={<Loading />}>
               <Game />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/indexed-db"
+          element={
+            <Suspense fallback={<Loading />}>
+              <IndexedDBDemo />
             </Suspense>
           }
         />

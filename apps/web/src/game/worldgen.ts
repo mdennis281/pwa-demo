@@ -394,32 +394,6 @@ function pineTree(out: WorldData, x: number, z: number, height: number) {
   }
 }
 
-/** Climbing tree — collidable branch platforms zigzag up to topY. */
-function climbingTree(out: WorldData, cx: number, cz: number, topY: number) {
-  const trunkR = 0.5;
-  const trunkH = topY + 0.5;
-  decoCyl(out, cx, trunkH / 2, cz, trunkR, trunkH, C.treeTrunk, { segments: 12 });
-  out.boxes.push({ x: cx, y: trunkH / 2, z: cz, hx: trunkR * 0.85, hy: trunkH / 2, hz: trunkR * 0.85 });
-  const layout: [number, number, number][] = [
-    [1.4, 1.5,  0.0],
-    [-1.4, 3.0, 0.6],
-    [0.5, 4.4, -1.5],
-    [-0.6, 5.8, 1.4],
-    [1.5, 7.0, 0.2],
-    [-0.2, topY, -0.2],
-  ];
-  for (const [dx, by, dz] of layout) {
-    if (by > trunkH) break;
-    solidBox(out, cx + dx, by, cz + dz, 0.6, 0.12, 0.6, C.treeTrunk, { rough: 0.9 });
-    decoSphere(out, cx + dx * 1.4, by + 0.4, cz + dz * 1.4, 0.6, C.treeFol);
-    decoSphere(out, cx + dx * 1.4, by + 0.6, cz + dz * 1.4 - 0.3, 0.45, C.treeFol2);
-  }
-  decoSphere(out, cx,        topY + 0.9, cz,        1.5, C.treeFol);
-  decoSphere(out, cx - 0.9,  topY + 0.7, cz + 0.4,  1.1, C.treeFol2);
-  decoSphere(out, cx + 0.8,  topY + 0.8, cz - 0.5,  1.1, C.treeFol2);
-  decoSphere(out, cx + 0.2,  topY + 1.6, cz + 0.1,  0.9, C.treeFol);
-}
-
 // ────────────────────── features: small props ──────────────────────
 
 function lantern(out: WorldData, x: number, baseY: number, z: number, height = 2.2) {
@@ -529,8 +503,8 @@ function well(out: WorldData, cx: number, cz: number, baseY = 0) {
   for (const [sx, sz] of [[-rimR * 0.8, -rimR * 0.8], [rimR * 0.8, -rimR * 0.8], [-rimR * 0.8, rimR * 0.8], [rimR * 0.8, rimR * 0.8]] as const) {
     decoCyl(out, cx + sx, baseY + 1.6, cz + sz, 0.07, 2.0, C.wood);
   }
-  // flatter pyramid roof (was 0.9 tall, now 0.55)
-  decoCone(out, cx, baseY + 2.85, cz, rimR * 1.4, 0.55, C.roofRed, { rotY: Math.PI / 4, segments: 4 });
+  // Half-grade pyramid roof, flush with the post tops at y=baseY+2.6
+  decoCone(out, cx, baseY + 2.74, cz, rimR * 1.4, 0.28, C.roofRed, { rotY: Math.PI / 4, segments: 4 });
   // crank handle (decorative)
   decoCyl(out, cx, baseY + 2.4, cz, 0.05, 1.8, C.wood, { rotY: Math.PI / 2 });
   decoSphere(out, cx + 0.9, baseY + 2.4, cz, 0.1, C.wood);
@@ -607,6 +581,97 @@ function crystal(out: WorldData, x: number, baseY: number, z: number, height: nu
 
 // ────────────────────── features: climbable structures ──────────────────────
 
+/** A unified climbing spoke. All 8 spokes share this exact vertical/horizontal
+ *  profile — only the rotation, colors, and entry-pad decoration change. This
+ *  gives the player a consistent, refined approach from any direction.
+ *
+ *  Layout (along the spoke's radial direction, looking inward):
+ *    entry pad     y=0.0   radius rOuter  (2.0×2.0 cobble pad, flag)
+ *    step 1        y=1.6   radius rOuter - 2.8
+ *    step 2        y=3.2   radius rOuter - 5.6
+ *    step 3        y=4.8   radius rOuter - 8.4
+ *    step 4        y=6.4   radius rOuter - 11.2
+ *    step 5        y=8.0   radius rOuter - 14.0
+ *    landing pad   y=9.4   radius rInner  (1.2×1.2 themed pad)
+ *    → short flat bridge to central tower edge at radius rTower
+ *
+ *  Gap math per step: 1.6m up + ~2.8m horizontal. Single-jump apex 3m can
+ *  reach ~5.5m horizontal at 1.6m up, so every gap is comfortably in the
+ *  EASY band. Spoke faces straight inward — no zigzag.
+ */
+function climbSpoke(out: WorldData, opts: {
+  angle: number;
+  rOuter: number;
+  rInner: number;
+  rTower: number;
+  mergeY: number;
+  baseColor: string;
+  topColor: string;
+  flagColor: string;
+  /** Small decorative landmark at the entry pad — purely visual */
+  marker?: 'lantern' | 'pine' | 'blossom' | 'mushroom';
+}) {
+  const cosA = Math.cos(opts.angle);
+  const sinA = Math.sin(opts.angle);
+  const numSteps = 5;
+  const stepRise = 1.6;                       // y of step i = i * stepRise
+  const radialSpan = opts.rOuter - opts.rInner;
+  const radialStep = radialSpan / (numSteps + 1); // ≈ 2.83 with 22→5 / 6
+
+  // Entry pad — a clearly-marked landing spot at ground level
+  const ex = cosA * opts.rOuter;
+  const ez = sinA * opts.rOuter;
+  platform(out, ex, 0.4, ez, 1.0, 1.0, C.cobbleDark, C.cobble);
+  decoBox(out, ex, 0.45, ez, 1.05, 0.05, 1.05, C.cobbleEdge, { cast: false });
+  // Flag pole at the back of the entry pad so each direction has a marker
+  const px = cosA * (opts.rOuter + 0.7);
+  const pz = sinA * (opts.rOuter + 0.7);
+  decoCyl(out, px, 1.6, pz, 0.05, 2.8, C.wood);
+  decoBox(out, px - cosA * 0.4, 2.5, pz - sinA * 0.4, 0.4, 0.3, 0.04, opts.flagColor, { rotY: opts.angle });
+  out.flags.push({ x: ex, y: 0.5, z: ez, rotY: opts.angle, color: opts.flagColor });
+
+  // Optional cosmetic landmark next to the entry pad
+  if (opts.marker === 'lantern') {
+    lantern(out, ex + sinA * 1.6, 0, ez - cosA * 1.6, 2.6);
+    lantern(out, ex - sinA * 1.6, 0, ez + cosA * 1.6, 2.6);
+  } else if (opts.marker === 'pine') {
+    pineTree(out, ex + sinA * 2.4, ez - cosA * 2.4, 3.5);
+  } else if (opts.marker === 'blossom') {
+    blossomTree(out, ex + sinA * 2.4, ez - cosA * 2.4, 3.0);
+  } else if (opts.marker === 'mushroom') {
+    mushroom(out, ex + sinA * 1.4, ez - cosA * 1.4, 1.2, 'red');
+    mushroom(out, ex - sinA * 1.4, ez + cosA * 1.4, 0.9, 'purple');
+  }
+
+  // 5 stepping platforms ascending toward the tower
+  for (let i = 1; i <= numSteps; i++) {
+    const r = opts.rOuter - i * radialStep;
+    const y = i * stepRise;
+    const x = cosA * r;
+    const z = sinA * r;
+    // Slightly larger pads for the final two steps so the approach to the
+    // landing pad reads cleanly
+    const hxz = i >= 4 ? 0.9 : 0.75;
+    platform(out, x, y, z, hxz, hxz, opts.baseColor, opts.topColor);
+    // Soft railing post on the outboard edge (purely visual hint)
+    if (i === 2 || i === 4) {
+      const rx = cosA * (r + 0.6);
+      const rz = sinA * (r + 0.6);
+      decoCyl(out, rx, y + 0.45, rz, 0.04, 0.9, C.wood);
+      decoSphere(out, rx, y + 0.95, rz, 0.1, opts.flagColor);
+    }
+  }
+
+  // Landing pad at the merge height — ring of 8 identical pads at radius rInner
+  const lx = cosA * opts.rInner;
+  const lz = sinA * opts.rInner;
+  platform(out, lx, opts.mergeY, lz, 1.2, 1.2, opts.baseColor, opts.topColor);
+  decoBox(out, lx, opts.mergeY + 0.06, lz, 1.25, 0.04, 1.25, C.cobbleEdge, { cast: false });
+
+  // Short, flat bridge from landing pad to the central tower edge
+  bridge(out, lx, lz, cosA * opts.rTower, sinA * opts.rTower, opts.mergeY);
+}
+
 /** Central spiral staircase tower. Climb route #1. */
 /** Central spiral staircase tower. Hand-tuned so the top step's TOP y exactly
  *  equals the top platform's TOP y, and the spiral radius is OUTSIDE the
@@ -660,166 +725,6 @@ function spiralTower(out: WorldData, cx: number, cz: number, baseY: number, topY
   decoCyl(out, cx, topY + 1.5, cz, 0.06, 3.0, C.wood);
   // Small lantern at top of the pole
   decoSphere(out, cx, topY + 3.1, cz, 0.18, C.lanternGlow, { emissive: C.lanternGlow, emissiveIntensity: 1.6 });
-}
-
-/** Stone tower with exterior wooden stairs spiraling once around it.
- *  Climb route #2 (east).
- *
- *  Geometry calibrated like the central spiral:
- *    - stepRadius (3.0) > platformHx + rxz (2.1 + 0.4 = 2.5) → no head bump
- *    - Top step's top y = topY = platform top y → no vertical mismatch on walk-on
- *    - Roof is decorative-only (no collider) so it doesn't trap players who jump
- *
- *  Per-step gap: ~0.64m vertical, ~1.3m horizontal — trivial.
- */
-function outerScaffold(out: WorldData, cx: number, cz: number, topY: number, color = C.cobble) {
-  const tw = 1.8;                       // tower half-extent
-  const platformHx = tw + 0.3;          // 2.1
-  const stepRadius = tw + 1.2;          // 3.0
-  const steps = 14;
-  const stepRise = topY / steps;        // ≈ 0.64
-
-  // Tower body
-  decoBox(out, cx, topY / 2, cz, tw, topY / 2, tw, color, { rough: 0.95 });
-  out.boxes.push({ x: cx, y: topY / 2, z: cz, hx: tw * 0.9, hy: topY / 2, hz: tw * 0.9 });
-
-  // External stairs — one full turn around the tower
-  for (let i = 0; i < steps; i++) {
-    const angle = (i / steps) * Math.PI * 2 + 0.4;
-    const sx = cx + Math.cos(angle) * stepRadius;
-    const sz = cz + Math.sin(angle) * stepRadius;
-    const stepTopY = (i + 1) * stepRise;
-    const halfY = stepRise / 2;
-    solidBox(out, sx, stepTopY - halfY, sz, 0.7, halfY, 0.7, C.wood, { rough: 0.85 });
-    decoCyl(out, sx, stepTopY + 0.35, sz, 0.04, 0.7, C.wood);
-  }
-
-  // Top platform — small footprint inside the spiral's radius so steps don't push out
-  solidBox(out, cx, topY - 0.05, cz, platformHx, 0.05, platformHx, C.cobbleEdge);
-  // No roof — clear sky above. Just a flag pole at the center.
-  decoCyl(out, cx, topY + 0.8, cz, 0.05, 1.4, C.wood);
-  // Window halfway up the tower body
-  decoBox(out, cx, topY * 0.55, cz + tw + 0.01, 0.35, 0.3, 0.04, C.windowGlow, { emissive: C.windowGlow, emissiveIntensity: 0.55 });
-  decoBox(out, cx, topY * 0.55, cz + tw + 0.01, 0.4, 0.35, 0.05, C.windowFrame);
-}
-
-/** Wooden watchtower — 4 corner posts with a TRUE LADDER on one side.
- *  Climb route #4 (north).
- *
- *  Player walks toward the +z face of the tower, enters the ladder volume,
- *  holds W to climb. Volume top = top platform top, so they exit onto the
- *  lookout platform smoothly.
- */
-function watchtower(out: WorldData, cx: number, cz: number, topY: number) {
-  const w = 1.4; // half-extent of the tower footprint
-  // 4 corner posts (visual + each a slim collider so the structure has integrity)
-  const postHy = topY / 2;
-  for (const [sx, sz] of [[-w, -w], [w, -w], [-w, w], [w, w]] as const) {
-    decoCyl(out, cx + sx, postHy, cz + sz, 0.12, topY, C.wood);
-    out.boxes.push({ x: cx + sx, y: postHy, z: cz + sz, hx: 0.12, hy: postHy, hz: 0.12 });
-  }
-  // Cross-braces (decorative)
-  for (const side of [[-w, 0, 1, 0], [w, 0, 1, 0], [0, -w, 0, 1], [0, w, 0, 1]] as const) {
-    decoBox(out, cx + side[0], topY * 0.4, cz + side[1], 0.05, 0.6, 0.05, C.wood, { rotY: side[2] === 1 ? 0.6 : -0.6 });
-  }
-  // Top lookout platform — thin so it doesn't head-bump anyone climbing the ladder
-  const lookoutTopY = topY + 0.1;
-  solidBox(out, cx, lookoutTopY - 0.05, cz, w + 0.6, 0.05, w + 0.6, C.plank, { rough: 0.85 });
-  // Low railing posts (decorative)
-  for (const [sx, sz] of [[-w, -w], [w, -w], [-w, w], [w, w]] as const) {
-    decoCyl(out, cx + sx, lookoutTopY + 0.4, cz + sz, 0.05, 0.7, C.wood);
-  }
-  // Watch-fire on a slim pole at center (no roof — clear sky above the lookout)
-  decoCyl(out, cx, lookoutTopY + 0.8, cz, 0.05, 1.4, C.wood);
-  decoSphere(out, cx, lookoutTopY + 1.6, cz, 0.18, C.lanternGlow, { emissive: C.lanternGlow, emissiveIntensity: 1.4 });
-
-  // TRUE LADDER on the +z face. Player approaches from south (positive z) and
-  // climbs from ground to the lookout deck. ladderVolume internally extends the
-  // volume 1.2m above lookoutTopY so the climb-through-platform phase doesn't
-  // get pushed off by the platform's underside.
-  ladderVolume(out, {
-    cx,
-    cz: cz + w + 0.25,
-    baseY: 0,
-    topY: lookoutTopY,
-    faceX: 0, faceZ: 1,
-    width: 1.2,
-  });
-}
-
-/** Tavern — 2-story building with external stairs to a balcony, then a TRUE
- *  LADDER up the east face to a small landing pad at y=9.4 that bridges to
- *  the central tower top.
- *  Climb route #5 (south).
- *
- *  Path gap math:
- *  - 5 external stair steps: each 0.56m rise, trivial walk-up
- *  - balcony at y=2.8 → ladder volume → landing pad at y=9.4 (climb 6.6m)
- *  - landing pad → bridge to central tower top (both at y=9.4, flat)
- */
-function tavern(out: WorldData, cx: number, cz: number, baseY = 0): { landingX: number; landingZ: number; landingY: number } {
-  const w = 4, d = 3.5, h1 = 2.6;
-  // First-floor walls
-  solidBox(out, cx, baseY + h1 / 2, cz, w / 2, h1 / 2, d / 2, C.wallCream, { rough: 0.9 });
-  decoBox(out, cx, baseY + h1 + 0.05, cz, w / 2 + 0.1, 0.06, d / 2 + 0.1, C.wood, { cast: false });
-  // Second-floor (narrower) walls — decorative silhouette
-  const h2 = 1.8;
-  solidBox(out, cx, baseY + h1 + 0.12 + h2 / 2, cz, w / 2 - 0.3, h2 / 2, d / 2 - 0.3, C.wallOlive, { rough: 0.9 });
-  // Flatter pyramid roof — solid collider
-  const roofR = w / 2 - 0.3;
-  const roofH = 1.0;        // was 1.6 — flatter
-  const roofCY = baseY + h1 + 0.12 + h2 + 0.12 + roofH / 2;
-  decoCone(out, cx, roofCY, cz, roofR * Math.SQRT2, roofH, C.roofRed, { rotY: Math.PI / 4, segments: 4 });
-  out.boxes.push({ x: cx, y: roofCY, z: cz, hx: roofR, hy: roofH / 2, hz: roofR });
-
-  // External stairs on the +z side up to a balcony at y=2.8 (5 steps of 0.56m rise — trivial)
-  stairFlight(out, {
-    startX: cx - w / 2 - 0.2, startZ: cz + d / 2 + 0.4,
-    dirX: 1, dirZ: 0,
-    steps: 5, stepRise: (h1 + 0.2) / 5, stepRun: 0.6, width: 1.2,
-    color: C.wood, railColor: C.woodDark,
-  });
-  // Balcony deck along the +z side
-  const balconyY = baseY + h1 + 0.2;
-  solidBox(out, cx, balconyY, cz + d / 2 + 0.8, w / 2 + 0.3, 0.08, 0.6, C.plank);
-
-  // Tall TRUE LADDER from balcony up to the landing pad at y=9.4
-  const landingY = 9.4;
-  const ladderX = cx + w / 2 + 0.6;
-  const ladderZ = cz + d / 2 + 0.8;
-  ladderVolume(out, {
-    cx: ladderX, cz: ladderZ,
-    baseY: balconyY + 0.1,
-    topY: landingY,
-    faceX: 1, faceZ: 0,
-    width: 1.0,
-  });
-
-  // Landing pad at top of the ladder (hand-tuned so the player can step off
-  // the ladder into the pad horizontally without head-bumping)
-  const padHx = 0.9;
-  solidBox(out, ladderX, landingY - 0.05, ladderZ, padHx, 0.05, padHx, C.plank, { rough: 0.85 });
-  // Small rail post on the pad (visual)
-  decoCyl(out, ladderX + padHx, landingY + 0.4, ladderZ, 0.04, 0.8, C.wood);
-  decoCyl(out, ladderX - padHx, landingY + 0.4, ladderZ, 0.04, 0.8, C.wood);
-
-  // Sign hanging out front
-  decoCyl(out, cx - w / 2 - 0.1, baseY + h1 - 0.1, cz - d / 2 + 0.3, 0.06, 0.6, C.wood, { rotY: Math.PI / 2 });
-  decoBox(out, cx - w / 2 - 0.5, baseY + h1 - 0.5, cz - d / 2 + 0.3, 0.04, 0.45, 0.6, C.woodLight);
-  decoBox(out, cx - w / 2 - 0.5, baseY + h1 - 0.5, cz - d / 2 + 0.3, 0.05, 0.4, 0.55, '#fef9c3', { emissive: '#fef9c3', emissiveIntensity: 0.3 });
-  // Door
-  decoBox(out, cx, baseY + 0.8, cz - d / 2 - 0.01, 0.4, 0.8, 0.04, C.doorBrown);
-  decoBox(out, cx, baseY + 0.8, cz - d / 2 - 0.01, 0.45, 0.85, 0.05, C.windowFrame);
-  // Windows
-  for (const sx of [-1.2, 1.2]) {
-    decoBox(out, cx + sx, baseY + 1.5, cz - d / 2 - 0.01, 0.3, 0.3, 0.04, C.windowGlow, { emissive: C.windowGlow, emissiveIntensity: 0.7 });
-    decoBox(out, cx + sx, baseY + 1.5, cz - d / 2 - 0.01, 0.35, 0.35, 0.05, C.windowFrame);
-  }
-  // Chimney
-  decoBox(out, cx - w / 4, roofCY + roofH / 2 + 0.5, cz - d / 4, 0.25, 0.7, 0.25, '#7f1d1d');
-  out.smoke.push({ x: cx - w / 4, y: roofCY + roofH / 2 + 1.3, z: cz - d / 4 });
-
-  return { landingX: ladderX, landingZ: ladderZ, landingY };
 }
 
 // ────────────────────── helpers ──────────────────────
@@ -906,14 +811,16 @@ export function generateWorld(seed = 1337): WorldData {
       cx: c.cx, cz: c.cz, baseY: 0,
       wallW: 4.0, wallD: 4.0,           // square footprint so the roof cap doesn't overhang
       wallH: 2.5,                       // single jump from ground (apex 3m) clears this
-      roofH: 1.0,                       // flatter decorative cap
+      roofH: 0.5,                       // half-grade decorative cap — easier silhouette to land on
       wallColor: c.wall, roofColor: c.roof,
       doorFace: c.door, hasGarden: c.garden,
     });
   }
-  // Perimeter fence with gaps at the 4 cardinal directions
+  // Perimeter fence with gaps aligned to the 8 spoke directions (π/8 offset
+  // so spokes thread between the 4 diagonal cottages — see climbSpoke block)
   const fenceR = 36;
-  const gaps = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
+  const SPOKE_OFFSET = Math.PI / 8;
+  const gaps = [0, 1, 2, 3, 4, 5, 6, 7].map(i => SPOKE_OFFSET + i * Math.PI / 4);
   for (let i = 0; i < 56; i++) {
     const a1 = (i / 56) * Math.PI * 2;
     const a2 = ((i + 1) / 56) * Math.PI * 2;
@@ -943,70 +850,47 @@ export function generateWorld(seed = 1337): WorldData {
   //   hard:    gap ≤ 3.0m (right at single-jump limit)
   //   double:  gap ≤ 4.5m (requires double jump)
 
-  // ── PATH 1: central spiral tower (the SPINE)
+  // ── SPINE: central spiral tower (route #0 — the destination all spokes feed into)
   //    22 steps of 0.43m rise each, radius 3.7 → outside platform footprint
   //    → top step's top y = 9.4 = platform top y → seamless walk-on.
   spiralTower(out, 0, 0, 0, 9.4);
   out.flags.push({ x: 0, y: 9.4 + 2.4, z: 0, rotY: 0, color: C.flag1 });
 
-  // ── PATH 2: East stone tower (merges at central tower top, y=9.4)
-  //    14 steps of 0.64m rise, stair radius 3.0, platform half-extent 2.1.
-  //    Top step y=9.4 matches platform top.
-  outerScaffold(out, 16, 0, 9.4, C.cobble);
-  out.flags.push({ x: 16, y: 11.7, z: 0, rotY: Math.PI / 2, color: C.flag2 });
-  //    Bridge across: ~11m horizontal, flat at y=9.4 → trivial walk.
-  bridge(out, 16 - 2.1, 0, 0 + 2.8, 0, 9.4);
-
-  // ── PATH 3: West climbing tree (merges at central tower top)
-  //    6 branch platforms at y=1.5, 3.0, 4.5, 6.0, 7.5, 9.0
-  //    Each gap 1.5m vertical, ~2.5m horizontal → easy single jump.
-  climbingTree(out, -16, 0, 9.0);
-  //    Bridge from top branch (y≈9.0) to central tower (y=9.4). Small step up.
-  bridge(out, -16 + 0.6, 0, -2.8, 0, 9.2);
-
-  // ── PATH 4: North watchtower with TRUE LADDER
-  //    Player walks into the volume on the +z face and holds W; climbs 9.4m.
-  watchtower(out, 0, -16, 9.4);
-  out.flags.push({ x: 0, y: 9.4 + 2.7, z: -16, rotY: 0, color: C.flag4 });
-  //    Bridge from lookout (y=9.4) to central tower top, ~13m, flat.
-  bridge(out, 0, -16 + 2.0, 0, -2.8, 9.4);
-
-  // ── PATH 5: South tavern (stairs + TRUE LADDER + bridge)
-  //    External stairs to balcony at y=2.8 → vertical ladder to landing pad at y=9.4.
-  const tavernResult = tavern(out, 0, 16);
-  out.flags.push({ x: -2, y: 3.1, z: 16 - 1.75, rotY: 0, color: C.flag3 });
-  //    From the tavern's landing pad → mid-air stepping platform → central tower.
-  //    landingX = 0 + 4/2 + 0.6 = 2.6, landingZ = 16 + 3.5/2 + 0.8 = 18.55
-  bridge(out, tavernResult.landingX, tavernResult.landingZ - 0.9, 1.5, 11, 9.4);
-  bridge(out, 1.5, 10.1, 0, 2.8, 9.4);
-
-  // ── PATH 6: NW tall climbing tree (merges HIGHER — at the first stepper above tower)
-  //    Tall trunk with branches at y=1.5, 3.0, 4.5, 6.0, 7.5, 9.0, 10.5
-  //    Each gap 1.5m, easy. Total height matches first central stepper (y=11.4).
-  climbingTree(out, -26, 26, 10.5);
-  //    Aerial walkway from tree top to first central stepper.
-  //    Two intermediate platforms keep each bridge ≤ 12m.
-  platform(out, -18, 11.0, 18, 1.2, 1.2, C.dirt, C.grassDeep);
-  platform(out,  -9, 11.4, 8,  1.2, 1.2, C.dirt, C.grassDeep);
-  bridge(out, -25.4, 25.4, -19.2, 19.2, 11.0);
-  bridge(out, -16.8, 16.8,  -9.7, 9.0,  11.2);
-  // Bridge from mid-platform 2 to the first central stepping stone (3, 11.4, 1)
-  bridge(out, -7.8, 8,  3.0, 1.0, 11.4);
-
-  // ── PATH 7: SE precision platforms (merges at central tower top)
-  //    Small floating pillars stepping diagonally in toward the center.
-  //    Each gap ~5.7m horizontal at ~1.5m up — single jump apex 3.0m can reach
-  //    horizontal ≈5.55m at 1.5m up. So this path is right at single-jump LIMIT
-  //    (HARD); use double jump for comfortable margin.
-  platform(out, 24, 2.0, -24, 0.55, 0.55, C.dirtDark, C.grassDark); // start, ~2m up from ground
-  platform(out, 20, 3.5, -20, 0.55, 0.55, C.dirtDark, C.grassDark); // 5.66m horiz, 1.5m up — HARD
-  platform(out, 16, 5.0, -16, 0.55, 0.55, C.dirtDark, C.grassDark); // HARD
-  platform(out, 12, 6.5, -12, 0.55, 0.55, C.dirtDark, C.grassDark); // HARD
-  platform(out,  8, 8.0,  -8, 0.6,  0.6,  C.dirtDark, C.grassDark); // HARD
-  platform(out,  4, 9.4,  -4, 0.7,  0.7,  C.dirtDark, C.grassDark); // 5.66m horiz, 1.4m up — HARD
-  //    Final step onto central tower top: from (4, 9.4, -4) to (2.8, 9.4, -2.8)
-  //    1.7m horizontal flat → trivial walk-jump
-  out.flags.push({ x: 24, y: 3.5, z: -24, rotY: -Math.PI / 4, color: C.flag5 });
+  // ── 8 IDENTICAL SPOKES around the central tower ───────────────────
+  //    Each spoke uses the same vertical/horizontal profile (climbSpoke);
+  //    only the rotation, colors, and entry-pad landmark differ. All 8
+  //    merge at y=9.4 on a landing ring at radius 5, then bridge into
+  //    the central tower top (radius ~2.8). Every gap is EASY.
+  //
+  //    Spokes are offset by π/8 (22.5°) from the cardinal axes so they
+  //    thread BETWEEN the 4 diagonal cottages (at ±14, ±14) instead of
+  //    colliding with them. The fence perimeter has 8 matching gaps.
+  const spokeColors: Array<{ base: string; top: string; flag: string; marker: 'lantern' | 'pine' | 'blossom' | 'mushroom' }> = [
+    { base: C.dirt,      top: C.grassDeep,  flag: C.flag2, marker: 'lantern' },
+    { base: C.dirtDark,  top: C.grassDark,  flag: C.flag5, marker: 'mushroom' },
+    { base: C.dirt,      top: C.grassDeep,  flag: C.flag3, marker: 'blossom' },
+    { base: C.dirtDark,  top: C.grassDark,  flag: C.flag1, marker: 'pine' },
+    { base: C.dirt,      top: C.grassDeep,  flag: C.flag2, marker: 'blossom' },
+    { base: C.dirtDark,  top: C.grassDark,  flag: C.flag5, marker: 'pine' },
+    { base: C.dirt,      top: C.grassDeep,  flag: C.flag4, marker: 'lantern' },
+    { base: C.dirtDark,  top: C.grassDark,  flag: C.flag1, marker: 'mushroom' },
+  ];
+  const rTowerEdge = 2.8;
+  for (let i = 0; i < 8; i++) {
+    const angle = SPOKE_OFFSET + (i / 8) * Math.PI * 2;
+    const s = spokeColors[i];
+    climbSpoke(out, {
+      angle,
+      rOuter: 22,
+      rInner: 5,
+      rTower: rTowerEdge,
+      mergeY: 9.4,
+      baseColor: s.base,
+      topColor: s.top,
+      flagColor: s.flag,
+      marker: s.marker,
+    });
+  }
 
   // ─────────────────────────────────────────────────────────────
   //              SPINE: central tower top → goal
@@ -1038,8 +922,10 @@ export function generateWorld(seed = 1337): WorldData {
   solidBox(out, -3, floatY - 0.1, -5, 2.2, 0.1, 2.0, C.grassDeep);
   decoBox(out, -3, floatY + 0.02, -5, 2.2, 0.04, 2.0, C.grass, { cast: false });
   solidBox(out, -3, floatY + 1.0, -5, 1.5, 1.0, 1.3, C.wallLav);
-  decoCone(out, -3, floatY + 2.7, -5, 1.55 * Math.SQRT2, 1.3, C.roofGold, { rotY: Math.PI / 4, segments: 4 });
-  out.boxes.push({ x: -3, y: floatY + 2.7, z: -5, hx: 1.55, hy: 0.65, hz: 1.55 });
+  // Half-grade cap, footprint matches the smaller wall dimension (1.3) so it
+  // doesn't clip past the walls on either axis. Sits flush on the wall top.
+  decoCone(out, -3, floatY + 2.325, -5, 1.3 * Math.SQRT2, 0.65, C.roofGold, { rotY: Math.PI / 4, segments: 4 });
+  out.boxes.push({ x: -3, y: floatY + 2.325, z: -5, hx: 1.3, hy: 0.325, hz: 1.3 });
   decoBox(out, -3.5, floatY + 1.2, -3.7, 0.3, 0.25, 0.04, C.windowGlow, { emissive: C.windowGlow, emissiveIntensity: 0.7 });
   decoBox(out, -2.4, floatY + 2.3, -5.5, 0.18, 0.5, 0.18, '#7f1d1d');
   out.smoke.push({ x: -2.4, y: floatY + 2.8, z: -5.5 });
@@ -1051,8 +937,10 @@ export function generateWorld(seed = 1337): WorldData {
   solidBox(out, 5, floatY2 - 0.1, 2, 2.2, 0.1, 2.0, C.grassDeep);
   decoBox(out, 5, floatY2 + 0.02, 2, 2.2, 0.04, 2.0, C.grass, { cast: false });
   solidBox(out, 5, floatY2 + 1.0, 2, 1.5, 1.0, 1.3, C.wallCream);
-  decoCone(out, 5, floatY2 + 2.7, 2, 1.55 * Math.SQRT2, 1.3, C.roofTeal, { rotY: Math.PI / 4, segments: 4 });
-  out.boxes.push({ x: 5, y: floatY2 + 2.7, z: 2, hx: 1.55, hy: 0.65, hz: 1.55 });
+  // Half-grade cap, footprint matches the smaller wall dimension (1.3) so it
+  // doesn't clip past the walls on either axis. Sits flush on the wall top.
+  decoCone(out, 5, floatY2 + 2.325, 2, 1.3 * Math.SQRT2, 0.65, C.roofTeal, { rotY: Math.PI / 4, segments: 4 });
+  out.boxes.push({ x: 5, y: floatY2 + 2.325, z: 2, hx: 1.3, hy: 0.325, hz: 1.3 });
   decoBox(out, 5, floatY2 + 1.2, 3.3, 0.3, 0.25, 0.04, C.windowGlow, { emissive: C.windowGlow, emissiveIntensity: 0.7 });
   decoBox(out, 5.5, floatY2 + 2.3, 1.5, 0.18, 0.5, 0.18, '#7f1d1d');
   out.smoke.push({ x: 5.5, y: floatY2 + 2.8, z: 1.5 });
@@ -1069,8 +957,8 @@ export function generateWorld(seed = 1337): WorldData {
   solidBox(out, wmCX, wmBaseY + wmTowerH / 2, wmCZ, 0.7, wmTowerH / 2, 0.7, C.cobble);
   // Cap platform — top y = 30. Player will exit ladder onto this.
   solidBox(out, wmCX, 29.95, wmCZ, 1.6, 0.05, 1.6, C.cobbleEdge);
-  // Decorative roof, no collider
-  decoCone(out, wmCX, 30 + 1.0, wmCZ, 2.0, 1.6, C.roofGold, { rotY: Math.PI / 4, segments: 4 });
+  // Decorative roof, no collider — half-grade, flush with cap platform top (y=30)
+  decoCone(out, wmCX, 30 + 0.4, wmCZ, 2.0, 0.8, C.roofGold, { rotY: Math.PI / 4, segments: 4 });
   out.windmills.push({ x: wmCX, y: wmBaseY + wmTowerH * 0.7, z: wmCZ + 0.85, rotY: 0 });
   // TRUE LADDER on the +z face of the windmill, from windmill base entry y=23 up to y=30
   ladderVolume(out, {

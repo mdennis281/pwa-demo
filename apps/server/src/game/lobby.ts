@@ -26,6 +26,7 @@ export type Lobby = {
   name: string;
   hostId: string;
   maxPlayers: number;
+  paused: boolean;
   createdAt: number;
   players: Map<string, ServerPlayer>;
 };
@@ -56,6 +57,7 @@ export function createLobby(opts: {
     name: sanitize(opts.name, MAX_LOBBY_NAME, `${hostName}'s lobby`),
     hostId: opts.socketId,
     maxPlayers: MAX_PLAYERS,
+    paused: false,
     createdAt: Date.now(),
     players: new Map(),
   };
@@ -157,6 +159,7 @@ export function lobbyToState(lobby: Lobby): LobbyState {
     name: lobby.name,
     hostId: lobby.hostId,
     maxPlayers: lobby.maxPlayers,
+    paused: lobby.paused,
     createdAt: lobby.createdAt,
     players: [...lobby.players.values()].map<LobbyPlayer>((p) => ({
       id: p.socketId,
@@ -167,6 +170,48 @@ export function lobbyToState(lobby: Lobby): LobbyState {
       maxHeight: p.maxHeight,
     })),
   };
+}
+
+export function kickPlayer(
+  hostSocketId: string,
+  targetSocketId: string,
+): { ok: true; lobbyId: string } | { ok: false; error: string } {
+  const lobby = getLobbyOf(hostSocketId);
+  if (!lobby) return { ok: false, error: 'not in a lobby' };
+  if (lobby.hostId !== hostSocketId) return { ok: false, error: 'not the host' };
+  if (!lobby.players.has(targetSocketId)) return { ok: false, error: 'player not found' };
+  if (targetSocketId === hostSocketId) return { ok: false, error: 'cannot kick yourself' };
+  lobby.players.delete(targetSocketId);
+  playerLobby.delete(targetSocketId);
+  return { ok: true, lobbyId: lobby.id };
+}
+
+export function setPaused(
+  hostSocketId: string,
+  paused: boolean,
+): { ok: true; lobby: Lobby } | { ok: false; error: string } {
+  const lobby = getLobbyOf(hostSocketId);
+  if (!lobby) return { ok: false, error: 'not in a lobby' };
+  if (lobby.hostId !== hostSocketId) return { ok: false, error: 'not the host' };
+  lobby.paused = paused;
+  return { ok: true, lobby };
+}
+
+export function updateLobbyConfig(
+  hostSocketId: string,
+  opts: { maxPlayers?: number; name?: string },
+): { ok: true; lobby: Lobby } | { ok: false; error: string } {
+  const lobby = getLobbyOf(hostSocketId);
+  if (!lobby) return { ok: false, error: 'not in a lobby' };
+  if (lobby.hostId !== hostSocketId) return { ok: false, error: 'not the host' };
+  if (opts.name !== undefined) {
+    lobby.name = sanitize(opts.name, MAX_LOBBY_NAME, lobby.name);
+  }
+  if (opts.maxPlayers !== undefined) {
+    const cap = Math.max(1, Math.min(16, Math.floor(opts.maxPlayers)));
+    lobby.maxPlayers = cap;
+  }
+  return { ok: true, lobby };
 }
 
 export function updateInput(

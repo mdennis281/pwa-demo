@@ -7,6 +7,8 @@ import SkyDome from './SkyDome';
 import World, { generateWorld } from './World';
 import { spawnFor } from './worldgen';
 import CheatMenu, { DEFAULT_CHEATS, type Cheats } from './CheatMenu';
+import AdminMenu from './AdminMenu';
+import DebugPanel from './DebugPanel';
 import HUD from './HUD';
 import TouchControls from './controls/TouchControls';
 import { useKeyboard } from './controls/useKeyboard';
@@ -36,18 +38,42 @@ export default function GameCanvas({
   const [jumpsUsed, setJumpsUsed] = useState(0);
   const [cheats, setCheats] = useState<Cheats>(DEFAULT_CHEATS);
   const [cheatsOpen, setCheatsOpen] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [myPing, setMyPing] = useState<number | null>(null);
+  const [snapshotCount, setSnapshotCount] = useState(0);
   const myStateRef = useRef({ y: spawn.y, maxY: spawn.y });
 
-  // Ctrl+C toggles the cheat menu
+  const isHost = lobby.hostId === selfId;
+  const paused = lobby.paused ?? false;
+
+  // Ctrl+C toggles the cheat menu; Ctrl+A toggles admin menu (host only)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey && (e.code === 'KeyC' || e.key === 'c' || e.key === 'C')) {
         e.preventDefault();
         setCheatsOpen((v) => !v);
       }
+      if (e.ctrlKey && (e.code === 'KeyA' || e.key === 'a' || e.key === 'A') && isHost) {
+        e.preventDefault();
+        setAdminOpen((v) => !v);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+  }, [isHost]);
+
+  // Periodic ping probe so the server tracks each player's ping
+  useEffect(() => {
+    const s = getSocket();
+    const probe = () => s.emit('ping:probe', Date.now());
+    probe();
+    const id = setInterval(probe, 3000);
+    const onPong = (sentAt: number) => setMyPing(Date.now() - sentAt);
+    s.on('pong:reply', onPong);
+    return () => {
+      clearInterval(id);
+      s.off('pong:reply', onPong);
+    };
   }, []);
 
   useKeyboard(true);
@@ -60,13 +86,17 @@ export default function GameCanvas({
   useEffect(() => {
     const s = getSocket();
     const onSnap = (snap: GameSnapshot) => {
-      if (snap.lobbyId === lobby.id) setSnapshot(snap);
+      if (snap.lobbyId === lobby.id) {
+        setSnapshot(snap);
+        setSnapshotCount((n) => n + 1);
+      }
     };
     s.on('game:snapshot', onSnap);
     return () => { s.off('game:snapshot', onSnap); };
   }, [lobby.id]);
 
   const sendInput = (i: LocalInput) => {
+    if (paused) return; // freeze input when game is paused
     getSocket().emit('game:input', i);
     myStateRef.current.y = i.y;
     if (i.y > myStateRef.current.maxY) myStateRef.current.maxY = i.y;
@@ -75,6 +105,10 @@ export default function GameCanvas({
   const others = snapshot?.players.filter((p) => p.id !== selfId && p.role === 'player') ?? [];
   const mySnap = snapshot?.players.find((p) => p.id === selfId);
   const myMaxHeight = Math.max(mySnap?.maxHeight ?? 0, myStateRef.current.maxY);
+
+  // Map socketId → ping from latest snapshot (populated once server starts tracking pings)
+  const snapPings: Record<string, number | null> = {};
+  for (const p of snapshot?.players ?? []) snapPings[p.id] = p.ping ?? null;
 
   return (
     <div className="fixed inset-0 bg-slate-950 z-40">
@@ -163,6 +197,32 @@ export default function GameCanvas({
         onClose={() => setCheatsOpen(false)}
       />
 
+      <AdminMenu
+        open={adminOpen}
+        lobby={lobby}
+        selfId={selfId}
+        snapPings={snapPings}
+        onClose={() => setAdminOpen(false)}
+      />
+
+      <DebugPanel
+        players={snapshot?.players ?? []}
+        selfId={selfId}
+        myPing={myPing}
+        snapshotCount={snapshotCount}
+      />
+
+      {paused && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30">
+          <div className="bg-slate-950/80 backdrop-blur border border-amber-500/40 rounded-xl px-6 py-4 text-center">
+            <div className="text-amber-300 font-semibold text-lg tracking-wide">Game paused</div>
+            {isHost && (
+              <div className="text-slate-400 text-xs mt-1">Press Ctrl+A to resume</div>
+            )}
+          </div>
+        </div>
+      )}
+
       {(cheats.fly || cheats.infiniteJumps) && (
         <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-30 text-[10px] text-amber-200 bg-slate-950/60 border border-amber-500/30 rounded px-2 py-1 font-mono uppercase tracking-wider">
           cheats: {cheats.fly ? 'fly' : ''}{cheats.fly && cheats.infiniteJumps ? ' · ' : ''}{cheats.infiniteJumps ? '∞ jumps' : ''}
@@ -170,6 +230,15 @@ export default function GameCanvas({
       )}
 
       <div className="absolute top-4 right-1/2 translate-x-1/2 z-30 flex gap-2">
+        {isHost && (
+          <button
+            onClick={() => setAdminOpen((v) => !v)}
+            title="Admin panel (Ctrl+A)"
+            className="bg-slate-900/80 backdrop-blur border border-amber-500/30 hover:bg-slate-800 text-amber-300 text-xs px-3 py-1.5 rounded-md"
+          >
+            ★ Admin
+          </button>
+        )}
         <button
           onClick={onLeave}
           className="bg-slate-900/80 backdrop-blur border border-slate-700 hover:bg-slate-800 text-slate-200 text-xs px-3 py-1.5 rounded-md"
