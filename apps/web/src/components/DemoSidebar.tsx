@@ -119,6 +119,8 @@ export default function DemoSidebar() {
           const all = CAPABILITIES.filter((c) => c.category === cat);
           const supported = all.filter((c) => statuses[c.id] === 'supported').length;
           const partial = all.filter((c) => statuses[c.id] === 'partial').length;
+          const pct = all.length === 0 ? 0 : Math.round(((supported + partial) / all.length) * 100);
+          const pctColor = pct >= 80 ? 'text-emerald-400' : pct >= 50 ? 'text-amber-400' : pct > 0 ? 'text-rose-400' : 'text-slate-600';
           const override = openOverrides[cat];
           const open = isSearching ? true : (override ?? cat === activeCategory);
 
@@ -126,16 +128,17 @@ export default function DemoSidebar() {
             <div key={cat}>
               <button
                 onClick={() => toggle(cat)}
-                className="w-full flex items-center justify-between px-2 py-1.5 rounded-md text-slate-200 hover:bg-slate-800 transition"
+                className="w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-md text-slate-200 hover:bg-slate-800 transition"
               >
                 <span className="flex items-center gap-1.5 min-w-0">
                   <span className={`text-slate-500 transition-transform inline-block w-3 ${open ? 'rotate-90' : ''}`}>▸</span>
-                  <span className="truncate text-xs uppercase tracking-wider text-slate-400">{cat}</span>
+                  <span className="truncate text-xs uppercase tracking-wider text-slate-300">{cat}</span>
                 </span>
-                <span className="text-[10px] font-mono shrink-0">
-                  <span className="text-emerald-300">{supported}</span>
-                  <span className="text-slate-600">/{all.length}</span>
-                  {partial > 0 && <span className="text-amber-300 ml-0.5">+{partial}</span>}
+                <span className="flex items-center gap-1.5 shrink-0 font-mono text-xs">
+                  <span className="text-slate-300">
+                    {supported}<span className="text-slate-600">/{all.length}</span>
+                  </span>
+                  <span className={`${pctColor} font-semibold tabular-nums`}>{pct}%</span>
                 </span>
               </button>
 

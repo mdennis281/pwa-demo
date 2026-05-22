@@ -139,17 +139,21 @@ function CategoryCard({ category, statuses }: { category: Category; statuses: Re
 }
 
 function SupportBar({ caps, statuses }: { caps: Capability[]; statuses: Record<string, Support> }) {
+  // Aggregate counts so the bar reads as one continuous: green → amber → red → slate
+  // (rather than one tiny segment per cap, which looked like Christmas lights).
+  const buckets = caps.reduce(
+    (acc, c) => { acc[statuses[c.id] ?? 'unknown']++; return acc; },
+    { supported: 0, partial: 0, unsupported: 0, unknown: 0 } as Record<Support, number>,
+  );
+  const total = caps.length || 1;
+  const seg = (n: number, cls: string, label: string) =>
+    n > 0 ? <div key={cls} className={cls} style={{ width: `${(n / total) * 100}%` }} title={`${n} ${label}`} /> : null;
   return (
-    <div className="flex h-1.5 rounded overflow-hidden bg-slate-800">
-      {caps.map((c) => {
-        const s = statuses[c.id] ?? 'unknown';
-        const cls =
-          s === 'supported' ? 'bg-emerald-400'
-          : s === 'partial' ? 'bg-amber-400'
-          : s === 'unsupported' ? 'bg-rose-500'
-          : 'bg-slate-600';
-        return <div key={c.id} className={`flex-1 ${cls}`} title={`${c.name}: ${s}`} />;
-      })}
+    <div className="flex h-2 rounded overflow-hidden bg-slate-800">
+      {seg(buckets.supported,   'bg-emerald-400', 'supported')}
+      {seg(buckets.partial,     'bg-amber-400',   'partial')}
+      {seg(buckets.unsupported, 'bg-rose-500',    'unsupported')}
+      {seg(buckets.unknown,     'bg-slate-600',   'checking')}
     </div>
   );
 }
