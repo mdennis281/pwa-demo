@@ -4,16 +4,14 @@ import { CAPABILITIES, CATEGORIES, slugifyCategory, type Capability, type Catego
 import { INLINE_DEMOS } from '../lib/demos';
 import { useCapabilityStatuses } from '../lib/useCapabilityStatuses';
 
-/** Standalone demos that aren't a single capability check. These are surfaced
- *  inside their category in the sidebar with a star indicator. */
+/** Standalone demos that aren't a single capability check. Surfaced inside
+ *  their category in the sidebar with a star indicator. Everything else
+ *  (push, status, worker, manifest, indexed-db) is reachable via its
+ *  capability row — keeping the star reserved for the only demo that
+ *  isn't a per-capability page. */
 const STANDALONE: Array<{ to: string; title: string; category: Category }> = [
-  { to: '/',           title: 'Overview',           category: 'Install & PWA' },
-  { to: '/manifest',   title: 'Install playground', category: 'Install & PWA' },
-  { to: '/push',       title: 'Web Push',           category: 'Notifications' },
-  { to: '/status',     title: 'Live status',        category: 'Networking' },
-  { to: '/indexed-db', title: 'IndexedDB bench',    category: 'Storage & files' },
-  { to: '/worker',     title: 'Web Worker bench',   category: 'Graphics & compute' },
-  { to: '/game',       title: 'Tower (multiplayer)', category: 'Graphics & compute' },
+  { to: '/',     title: 'Overview',   category: 'Install & PWA' },
+  { to: '/game', title: 'Tower Climb', category: 'Graphics & compute' },
 ];
 
 const DOT: Record<Support, string> = {
@@ -46,6 +44,11 @@ export default function DemoSidebar() {
     }
     const sd = STANDALONE.find((d) => d.to === location.pathname && d.to !== '/');
     if (sd) return sd.category;
+    // Auto-expand the category that owns a capability-demo route (e.g. /push
+    // belongs to Notifications). Without this, removing those routes from
+    // STANDALONE would mean their sidebar parent no longer opens automatically.
+    const cap = CAPABILITIES.find((c) => c.demo === location.pathname);
+    if (cap) return cap.category;
     return null;
   }, [location.pathname]);
 

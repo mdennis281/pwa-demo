@@ -5,14 +5,14 @@ import { INLINE_DEMOS } from '../lib/demos';
 import { useCapabilityStatuses } from '../lib/useCapabilityStatuses';
 
 /** Standalone routes that aren't tied to a single capability check.
- *  Each one is offered as a featured demo at the top of its category. */
+ *  Surfaced as the featured demo at the top of their category. */
 const STANDALONE_DEMOS: Array<{ to: string; title: string; blurb: string; category: Category }> = [
-  { to: '/game',       title: 'Tower (multiplayer)', blurb: '3D climbing game over socket.io.',                      category: 'Graphics & compute' },
-  { to: '/worker',     title: 'Web Worker bench',   blurb: 'Heavy compute on/off the main thread, side-by-side.',  category: 'Graphics & compute' },
-  { to: '/indexed-db', title: 'IndexedDB bench',    blurb: 'Memory vs LocalStorage vs IndexedDB on 5 query types.', category: 'Storage & files' },
-  { to: '/status',     title: 'Live status',        blurb: 'Realtime list of connected clients (socket.io).',       category: 'Networking' },
-  { to: '/push',       title: 'Web Push',           blurb: 'Subscribe to push and receive a notification.',         category: 'Notifications' },
-  { to: '/manifest',   title: 'Install playground', blurb: 'Manifest, install state, display mode in real time.',   category: 'Install & PWA' },
+  {
+    to: '/game',
+    title: 'Tower Climb',
+    blurb: '3D multiplayer climb. three.js + react-three-fiber, socket.io for realtime sync.',
+    category: 'Graphics & compute',
+  },
 ];
 
 export default function Home() {

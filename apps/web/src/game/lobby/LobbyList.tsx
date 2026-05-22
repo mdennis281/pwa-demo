@@ -87,9 +87,16 @@ export default function LobbyList({
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
-      <h1 className="text-3xl font-bold mb-2">Climb the Tower</h1>
-      <p className="text-slate-400 mb-8">
+      <h1 className="text-3xl font-bold mb-2">Tower Climb</h1>
+      <p className="text-slate-400 mb-2">
         Get as high as you can. Jump up the platforms. Pick a lobby to join, or host your own.
+      </p>
+      <p className="text-slate-500 text-sm mb-8">
+        Built with <span className="text-slate-300">three.js</span> +{' '}
+        <span className="text-slate-300">react-three-fiber</span> for the 3D scene,{' '}
+        <span className="text-slate-300">socket.io</span> for realtime player state sync, and a
+        procedurally-generated world (cylindrical tower + ledges + bridges). Pointer Lock for
+        mouse-look, touch joystick on mobile.
       </p>
 
       <section className="bg-slate-900 border border-slate-800 rounded-lg p-5 mb-6">
