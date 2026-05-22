@@ -1,0 +1,25 @@
+[Unit]
+Description=pwa-demo Node server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pwademo
+Group=pwademo
+WorkingDirectory=/opt/pwa-demo/repo
+EnvironmentFile=/opt/pwa-demo/repo/.env
+ExecStart=/usr/bin/node apps/server/dist/index.js
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+# Modest hardening (no chroot; we still need npm/git/node).
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

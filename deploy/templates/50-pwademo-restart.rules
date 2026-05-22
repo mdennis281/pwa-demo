@@ -1,0 +1,10 @@
+// Allow the pwademo user to restart the pwa-demo systemd unit without a
+// password. Scoped narrowly to that single unit so the user can't bounce
+// anything else on the box.
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        action.lookup("unit") == "pwa-demo.service" &&
+        subject.user == "pwademo") {
+        return polkit.Result.YES;
+    }
+});

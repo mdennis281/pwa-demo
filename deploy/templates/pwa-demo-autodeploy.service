@@ -1,0 +1,13 @@
+[Unit]
+Description=pwa-demo poll origin/main and redeploy on change
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=pwademo
+Group=pwademo
+WorkingDirectory=/opt/pwa-demo/repo
+ExecStart=/opt/pwa-demo/bin/autodeploy.sh
+StandardOutput=journal
+StandardError=journal
