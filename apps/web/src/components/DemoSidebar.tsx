@@ -134,11 +134,8 @@ export default function DemoSidebar() {
                   <span className={`text-slate-500 transition-transform inline-block w-3 ${open ? 'rotate-90' : ''}`}>▸</span>
                   <span className="truncate text-xs uppercase tracking-wider text-slate-300">{cat}</span>
                 </span>
-                <span className="flex items-center gap-1.5 shrink-0 font-mono text-xs">
-                  <span className="text-slate-300">
-                    {supported}<span className="text-slate-600">/{all.length}</span>
-                  </span>
-                  <span className={`${pctColor} font-semibold tabular-nums`}>{pct}%</span>
+                <span className={`shrink-0 font-mono text-xs font-semibold tabular-nums ${pctColor}`}>
+                  {pct}%
                 </span>
               </button>
 

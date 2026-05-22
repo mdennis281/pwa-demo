@@ -46,12 +46,27 @@ export async function unsubscribe(): Promise<boolean> {
 }
 
 export async function sendTest(title?: string, body?: string): Promise<{ sent: number; failed: number; total: number }> {
+  // Re-register our current subscription before sending. The server keeps the
+  // sub list in-memory only, so any restart wipes it while the browser still
+  // holds a valid PushSubscription. Re-POSTing here is idempotent (keyed by
+  // endpoint) and makes the test path self-healing across server restarts.
+  const sub = await getExistingSubscription();
+  if (sub) {
+    await fetch('/api/push/subscribe', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(sub),
+    }).catch(() => { /* best-effort; /test will still report the real error */ });
+  }
   const res = await fetch('/api/push/test', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ title, body }),
   });
-  if (!res.ok) throw new Error(`server returned ${res.status}`);
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null) as { error?: string } | null;
+    throw new Error(`server returned ${res.status}${detail?.error ? ` — ${detail.error}` : ''}`);
+  }
   return res.json();
 }
 

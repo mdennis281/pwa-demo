@@ -179,6 +179,7 @@ export const CAPABILITIES: Capability[] = [
     description: 'Asynchronous client-side database.',
     category: 'Storage & files',
     check: () => supported('indexedDB' in window),
+    demo: '/indexed-db',
   },
   {
     id: 'cache-storage',
