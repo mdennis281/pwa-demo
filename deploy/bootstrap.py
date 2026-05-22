@@ -176,7 +176,12 @@ def bootstrap(*, quiet: bool = False) -> None:
         _apt_install(r, [
             "ca-certificates", "curl", "git", "build-essential",
             "nginx", "policykit-1",
+            # avahi-daemon publishes <hostname>.local via mDNS so the box is
+            # reachable by a stable name regardless of DHCP lease churn or
+            # stale entries in a router's DNS resolver.
+            "avahi-daemon",
         ])
+        r.run("systemctl enable --now avahi-daemon", sudo=True, check=False)
 
         # 2. node 20
         print("[2/9] node 20")

@@ -7,6 +7,9 @@ behind NAT/LAN).
 ## What it sets up on the box
 
 - **node 20** (NodeSource) + **nginx** + **policykit-1** + build-essential
+- **avahi-daemon** publishes `<hostname>.local` over mDNS — gives you a
+  stable URL even if DHCP gives the box a new IP and your router's DNS
+  caches a stale `<hostname>.lan` entry (which is what happened to us)
 - system user **pwademo** owning `/opt/pwa-demo/`
 - git clone of this repo at `/opt/pwa-demo/repo`
 - **`pwa-demo.service`** — runs `node apps/server/dist/index.js` on `:3000`
@@ -17,6 +20,10 @@ behind NAT/LAN).
   upgrade headers for socket.io)
 - **polkit rule** lets the `pwademo` user restart its own unit without a
   password (and only that unit)
+
+After bootstrap, open **http://pwa-demo.local** — that name resolves via
+mDNS straight off the box and survives reboots / IP changes. Prefer it
+over `pwa-demo.lan` (router DNS) for that reason.
 
 The autodeploy compares the remote tip against
 `/opt/pwa-demo/state/last-sha` (last *successful* deploy), so a failed
@@ -48,6 +55,7 @@ python -m deploy autodeploy trigger            # fire one run + tail journal
 python -m deploy autodeploy status             # timer + recent journal
 python -m deploy status                        # services + http probe
 python -m deploy logs [--unit U] [-n 100]      # journalctl
+python -m deploy ip                            # current IPv4 + .local URL
 ```
 
 ## First-time setup

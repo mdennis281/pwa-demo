@@ -105,6 +105,22 @@ def cmd_logs(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ip(args: argparse.Namespace) -> int:
+    """Print the box's current IPv4 + the canonical .local URL.
+
+    Useful when pfSense (or whatever LAN DNS) hands out stale entries —
+    .local resolves via mDNS straight off the box, no resolver in between.
+    """
+    with Remote(quiet=True) as r:
+        ip = r.run(
+            "hostname -I | awk '{print $1}'", check=True, stream=False
+        ).stdout.strip()
+        host = r.run("hostname", check=True, stream=False).stdout.strip()
+    print(f"ipv4:  {ip}")
+    print(f"mdns:  http://{host}.local")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="deploy", description="pwa-demo deployment toolbox")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -154,6 +170,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp = add("logs", cmd_logs)
     sp.add_argument("--unit", default="pwa-demo")
     sp.add_argument("-n", type=int, default=100)
+
+    add("ip", cmd_ip)
 
     return p
 
