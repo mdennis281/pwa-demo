@@ -3,6 +3,7 @@ import { Route, Routes } from 'react-router';
 import Layout from './components/Layout';
 
 const Home = lazy(() => import('./routes/Home'));
+const Category = lazy(() => import('./routes/Category'));
 const WebWorker = lazy(() => import('./routes/WebWorker'));
 const Status = lazy(() => import('./routes/Status'));
 const Push = lazy(() => import('./routes/Push'));
@@ -67,6 +68,14 @@ export default function App() {
           element={
             <Suspense fallback={<Loading />}>
               <IndexedDBDemo />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/category/:cat"
+          element={
+            <Suspense fallback={<Loading />}>
+              <Category />
             </Suspense>
           }
         />
