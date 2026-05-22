@@ -11,6 +11,8 @@ export const input = {
   descendHeld: false,
   yaw: 0,
   pitch: -0.35,
+  /** Third-person follow distance, driven by the mouse wheel. */
+  cameraDist: 6.5,
 };
 
 export function consumeJump(): boolean {
