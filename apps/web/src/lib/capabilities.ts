@@ -33,6 +33,11 @@ const has = (root: unknown, key: string): boolean => {
   return typeof root === 'object' && key in (root as object);
 };
 
+/** URL-safe slug for a Category name. Used in /category/:slug routes. */
+export function slugifyCategory(c: string): string {
+  return c.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
 const supported = (cond: boolean): Support => (cond ? 'supported' : 'unsupported');
 
 export const CATEGORIES: Category[] = [

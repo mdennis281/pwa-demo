@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Link } from 'react-router';
-import { CAPABILITIES, CATEGORIES, type Capability, type Category, type Support } from '../lib/capabilities';
+import { CAPABILITIES, CATEGORIES, slugifyCategory, type Capability, type Category, type Support } from '../lib/capabilities';
 import { INLINE_DEMOS } from '../lib/demos';
-import { slugify } from './Category';
+import { useCapabilityStatuses } from '../lib/useCapabilityStatuses';
 
 /** Standalone routes that aren't tied to a single capability check.
  *  Each one is offered as a featured demo at the top of its category. */
@@ -16,27 +16,7 @@ const STANDALONE_DEMOS: Array<{ to: string; title: string; blurb: string; catego
 ];
 
 export default function Home() {
-  const [statuses, setStatuses] = useState<Record<string, Support>>(() =>
-    Object.fromEntries(CAPABILITIES.map((c) => [c.id, c.check()])),
-  );
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const reg = 'serviceWorker' in navigator
-        ? await navigator.serviceWorker.ready.catch(() => null)
-        : null;
-      const updates: Record<string, Support> = {};
-      for (const cap of CAPABILITIES) {
-        if (cap.refine) {
-          try { updates[cap.id] = await cap.refine(reg); }
-          catch { updates[cap.id] = 'unknown'; }
-        }
-      }
-      if (!cancelled) setStatuses((prev) => ({ ...prev, ...updates }));
-    })();
-    return () => { cancelled = true; };
-  }, []);
+  const statuses = useCapabilityStatuses();
 
   const totals = useMemo(() => {
     const c: Record<Support, number> = { supported: 0, partial: 0, unsupported: 0, unknown: 0 };
@@ -109,7 +89,7 @@ function CategoryCard({ category, statuses }: { category: Category; statuses: Re
 
   return (
     <Link
-      to={`/category/${slugify(category)}`}
+      to={`/category/${slugifyCategory(category)}`}
       className="block bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 rounded-lg p-4 transition group"
     >
       <div className="flex items-start justify-between gap-2 mb-2">

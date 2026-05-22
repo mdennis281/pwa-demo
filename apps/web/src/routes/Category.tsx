@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router';
-import { CAPABILITIES, CATEGORIES, type Capability, type Category, type Support } from '../lib/capabilities';
+import { CAPABILITIES, CATEGORIES, slugifyCategory, type Capability, type Category, type Support } from '../lib/capabilities';
 import { INLINE_DEMOS } from '../lib/demos';
+import { useCapabilityStatuses } from '../lib/useCapabilityStatuses';
+import { useHashScrollHighlight } from '../components/DemoSidebar';
 
 const STATUS_DOT: Record<Support, string> = {
   supported: 'bg-emerald-400',
@@ -17,47 +19,23 @@ const STATUS_LABEL: Record<Support, string> = {
 };
 
 function categoryFromSlug(slug: string): Category | null {
-  for (const c of CATEGORIES) if (slugify(c) === slug) return c;
+  for (const c of CATEGORIES) if (slugifyCategory(c) === slug) return c;
   return null;
 }
 
-function slugify(c: string): string {
-  return c.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-}
-
-export { slugify };
+type FilterMode = 'all' | 'supported' | 'with-demo';
 
 export default function CategoryPage() {
   const { cat } = useParams<{ cat: string }>();
   const category = cat ? categoryFromSlug(cat) : null;
+  const statuses = useCapabilityStatuses();
+  const [filter, setFilter] = useState<FilterMode>('all');
+  useHashScrollHighlight();
 
   const caps = useMemo(
     () => (category ? CAPABILITIES.filter((c) => c.category === category) : []),
     [category],
   );
-
-  const [statuses, setStatuses] = useState<Record<string, Support>>(() =>
-    Object.fromEntries(caps.map((c) => [c.id, c.check()])),
-  );
-
-  useEffect(() => {
-    setStatuses(Object.fromEntries(caps.map((c) => [c.id, c.check()])));
-    let cancelled = false;
-    (async () => {
-      const reg = 'serviceWorker' in navigator
-        ? await navigator.serviceWorker.ready.catch(() => null)
-        : null;
-      const updates: Record<string, Support> = {};
-      for (const cap of caps) {
-        if (cap.refine) {
-          try { updates[cap.id] = await cap.refine(reg); }
-          catch { updates[cap.id] = 'unknown'; }
-        }
-      }
-      if (!cancelled) setStatuses((prev) => ({ ...prev, ...updates }));
-    })();
-    return () => { cancelled = true; };
-  }, [caps]);
 
   if (!category) {
     return (
@@ -73,6 +51,18 @@ export default function CategoryPage() {
     (acc, c) => { acc[statuses[c.id] ?? 'unknown']++; return acc; },
     { supported: 0, partial: 0, unsupported: 0, unknown: 0 } as Record<Support, number>,
   );
+  const demoCount = caps.filter((c) => INLINE_DEMOS[c.id] || c.demo).length;
+
+  const visible = caps.filter((c) => {
+    if (filter === 'supported') return statuses[c.id] === 'supported' || statuses[c.id] === 'partial';
+    if (filter === 'with-demo') return !!INLINE_DEMOS[c.id] || !!c.demo;
+    return true;
+  });
+
+  // Find prev/next category for footer nav
+  const idx = CATEGORIES.indexOf(category);
+  const prev = idx > 0 ? CATEGORIES[idx - 1] : null;
+  const next = idx < CATEGORIES.length - 1 ? CATEGORIES[idx + 1] : null;
 
   return (
     <div className="p-8 max-w-4xl mx-auto">
@@ -85,14 +75,45 @@ export default function CategoryPage() {
           {counts.supported}/{caps.length} supported{counts.partial ? ` · ${counts.partial} partial` : ''}
         </div>
       </div>
-      <p className="text-sm text-slate-500 mb-6">
+      <p className="text-sm text-slate-500 mb-4">
         Live feature detection. Each tile runs an actual demo of the capability against this browser — try them.
       </p>
 
-      <div className="space-y-3">
-        {caps.map((cap) => (
-          <FeatureCard key={cap.id} cap={cap} status={statuses[cap.id] ?? 'unknown'} />
-        ))}
+      <div className="flex flex-wrap gap-2 mb-6">
+        <Chip active={filter === 'all'} onClick={() => setFilter('all')}>
+          All <span className="opacity-60">· {caps.length}</span>
+        </Chip>
+        <Chip active={filter === 'supported'} onClick={() => setFilter('supported')} tone="emerald">
+          Supported <span className="opacity-60">· {counts.supported + counts.partial}</span>
+        </Chip>
+        <Chip active={filter === 'with-demo'} onClick={() => setFilter('with-demo')} tone="brand">
+          Has demo <span className="opacity-60">· {demoCount}</span>
+        </Chip>
+      </div>
+
+      {visible.length === 0 ? (
+        <div className="text-sm text-slate-500 italic border border-dashed border-slate-800 rounded-lg p-6 text-center">
+          Nothing matches this filter.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {visible.map((cap) => (
+            <FeatureCard key={cap.id} cap={cap} status={statuses[cap.id] ?? 'unknown'} />
+          ))}
+        </div>
+      )}
+
+      <div className="mt-10 flex items-center justify-between border-t border-slate-800 pt-4 text-sm">
+        {prev ? (
+          <Link to={`/category/${slugifyCategory(prev)}`} className="text-slate-400 hover:text-brand-200">
+            ← {prev}
+          </Link>
+        ) : <span />}
+        {next ? (
+          <Link to={`/category/${slugifyCategory(next)}`} className="text-slate-400 hover:text-brand-200 ml-auto">
+            {next} →
+          </Link>
+        ) : <span />}
       </div>
     </div>
   );
@@ -103,7 +124,8 @@ function FeatureCard({ cap, status }: { cap: Capability; status: Support }) {
   const unsupported = status === 'unsupported';
   return (
     <section
-      className={`bg-slate-900 border rounded-lg ${
+      id={cap.id}
+      className={`scroll-mt-4 transition-shadow bg-slate-900 border rounded-lg ${
         status === 'supported' ? 'border-emerald-500/30'
         : status === 'partial' ? 'border-amber-500/40'
         : status === 'unsupported' ? 'border-rose-500/30'
@@ -114,7 +136,13 @@ function FeatureCard({ cap, status }: { cap: Capability; status: Support }) {
         <span className={`mt-1.5 inline-block w-2 h-2 rounded-full shrink-0 ${STATUS_DOT[status]}`} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
-            <div className="font-medium truncate">{cap.name}</div>
+            <a
+              href={`#${cap.id}`}
+              className="font-medium truncate hover:text-brand-200 transition"
+              title="Direct link to this demo"
+            >
+              {cap.name}
+            </a>
             <span className="text-[10px] uppercase tracking-wider text-slate-500 shrink-0">
               {STATUS_LABEL[status]}
             </span>
@@ -152,5 +180,28 @@ function FeatureCard({ cap, status }: { cap: Capability; status: Support }) {
         )}
       </div>
     </section>
+  );
+}
+
+function Chip({
+  active, onClick, children, tone = 'slate',
+}: {
+  active: boolean; onClick: () => void; children: React.ReactNode;
+  tone?: 'slate' | 'emerald' | 'brand';
+}) {
+  const activeCls = {
+    slate: 'bg-slate-200 text-slate-900',
+    emerald: 'bg-emerald-500 text-slate-950',
+    brand: 'bg-brand-500 text-slate-950',
+  }[tone];
+  return (
+    <button
+      onClick={onClick}
+      className={`px-3 py-1 rounded-full text-xs font-medium transition border ${
+        active ? `${activeCls} border-transparent` : 'border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800'
+      }`}
+    >
+      {children}
+    </button>
   );
 }

@@ -1,20 +1,13 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet } from 'react-router';
+import { Link, Outlet } from 'react-router';
 import { onInstallAvailability, promptInstall, getDisplayMode } from '../lib/install';
 import ConnectionBadge from './ConnectionBadge';
-
-const NAV = [
-  { to: '/',         label: 'Home' },
-  { to: '/game',     label: 'Tower (game)' },
-  { to: '/worker',   label: 'Web Worker' },
-  { to: '/status',   label: 'Status' },
-  { to: '/push',     label: 'Push' },
-  { to: '/manifest', label: 'Manifest' },
-];
+import DemoSidebar from './DemoSidebar';
 
 export default function Layout() {
   const [installable, setInstallable] = useState(false);
   const [displayMode, setDisplayMode] = useState(getDisplayMode());
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => onInstallAvailability(setInstallable), []);
 
@@ -25,35 +18,44 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row">
-      <aside className="md:w-60 md:min-h-screen bg-slate-900 border-r border-slate-800 p-4 flex flex-col gap-4">
-        <div className="flex items-center gap-2">
+      {/* Mobile top bar */}
+      <header className="md:hidden flex items-center justify-between bg-slate-900 border-b border-slate-800 px-4 py-3">
+        <Link to="/" className="flex items-center gap-2" onClick={() => setMobileOpen(false)}>
+          <img src="/logo.svg" alt="" className="w-7 h-7" />
+          <div>
+            <div className="font-semibold leading-tight text-sm">PWA Demo</div>
+            <div className="text-[10px] text-slate-500">{displayMode}</div>
+          </div>
+        </Link>
+        <button
+          onClick={() => setMobileOpen((v) => !v)}
+          className="px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-sm"
+          aria-expanded={mobileOpen}
+          aria-controls="demo-sidebar"
+        >
+          {mobileOpen ? 'Close' : 'Menu'}
+        </button>
+      </header>
+
+      <aside
+        id="demo-sidebar"
+        className={`${
+          mobileOpen ? 'flex' : 'hidden'
+        } md:flex md:w-72 md:min-h-screen md:sticky md:top-0 md:max-h-screen bg-slate-900 border-r border-slate-800 p-4 flex-col gap-3`}
+      >
+        <Link to="/" className="hidden md:flex items-center gap-2" onClick={() => setMobileOpen(false)}>
           <img src="/logo.svg" alt="" className="w-8 h-8" />
           <div>
             <div className="font-semibold leading-tight">PWA Demo</div>
             <div className="text-xs text-slate-500">{displayMode}</div>
           </div>
+        </Link>
+
+        <div className="flex-1 min-h-0" onClick={() => setMobileOpen(false)}>
+          <DemoSidebar />
         </div>
 
-        <nav className="flex md:flex-col flex-row flex-wrap gap-1 text-sm">
-          {NAV.map((n) => (
-            <NavLink
-              key={n.to}
-              to={n.to}
-              end={n.to === '/'}
-              className={({ isActive }) =>
-                `px-3 py-2 rounded-md transition ${
-                  isActive
-                    ? 'bg-brand-600 text-white'
-                    : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                }`
-              }
-            >
-              {n.label}
-            </NavLink>
-          ))}
-        </nav>
-
-        <div className="mt-auto flex flex-col gap-2">
+        <div className="flex flex-col gap-2 pt-2 border-t border-slate-800">
           <ConnectionBadge />
           {installable && (
             <button
