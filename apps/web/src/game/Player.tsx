@@ -21,10 +21,16 @@ const CLIMB_SPEED = 4;             // ladder vertical speed (m/s)
 const LADDER_RELEASE_MS = 220;     // after jumping off a ladder, gravity stays on this long
 const FLY_SPEED = 14;              // cheat: free-fly speed
 
-const CAMERA_DIST = 6.5;
-const CAMERA_LERP_TAU = 0.07;
+const CAMERA_LERP_TAU = 0.001;          // very snappy positional catch-up (was 0.07)
 const CAMERA_MIN_DIST = 1.2;
 const CAMERA_PAD = 0.4;
+/** Max angular speed the camera may orbit the player (rad/sec). Below this
+ *  threshold the camera tracks the mouse instantly — no smoothing, no lag.
+ *  Above it, the camera lags behind and arcs around the orbit ring at this
+ *  rate. This is what prevents the "view flips the wrong way" glitch on fast
+ *  mouse flicks: smoothing the *angle* keeps the target on the orbit ring, so
+ *  the position lerp never chord-cuts through the player. ~3 turns/sec. */
+const CAMERA_MAX_ANG_SPEED = Math.PI * 6;
 const SEND_HZ = 20;
 
 const _camTarget = new THREE.Vector3();
@@ -105,6 +111,9 @@ export default function Player({
     wasJumpHeld: false,
     lastJumpAt: -Infinity,
     mountedMoverIdx: -1,
+    // Camera-specific yaw/pitch that lag behind the mouse only when the user
+    // flicks faster than CAMERA_MAX_ANG_SPEED. NaN = "first frame, snap."
+    camYaw: NaN, camPitch: NaN,
   });
   const lastSendRef = useRef(0);
   const { camera } = useThree();
@@ -163,12 +172,13 @@ export default function Player({
       s.state = mag > 0.05 ? 'run' : 'idle';
 
       // camera follow (same as normal)
-      const pitch = input.pitch;
-      const dirX = Math.sin(yaw) * Math.cos(pitch);
-      const dirY = -Math.sin(pitch);
-      const dirZ = Math.cos(yaw) * Math.cos(pitch);
+      rateClampAngles(s, input.yaw, input.pitch, cdt);
+      const dirX = Math.sin(s.camYaw) * Math.cos(s.camPitch);
+      const dirY = -Math.sin(s.camPitch);
+      const dirZ = Math.cos(s.camYaw) * Math.cos(s.camPitch);
       const tx = s.x, ty = s.y + 1, tz = s.z;
-      _camTarget.set(tx + dirX * CAMERA_DIST, ty + dirY * CAMERA_DIST, tz + dirZ * CAMERA_DIST);
+      const flyDist = input.cameraDist;
+      _camTarget.set(tx + dirX * flyDist, ty + dirY * flyDist, tz + dirZ * flyDist);
       camera.position.lerp(_camTarget, 1 - Math.pow(CAMERA_LERP_TAU, cdt));
       camera.lookAt(s.x, s.y + 0.9, s.z);
 
@@ -268,7 +278,11 @@ export default function Player({
     if (s.mountedMoverIdx >= 0 && s.mountedMoverIdx < movers.length) {
       const m = movers[s.mountedMoverIdx];
       s.x += m.x - m.prevX;
-      s.y += m.y - m.prevY;
+      // Snap Y exactly to the mover top. Accumulating (m.y - m.prevY) drifts
+      // by ~1 ULP from the true new top; even that tiny gap is enough to
+      // make the horizontal-sweep overlap check (strict `feetY < topY`)
+      // fire and shove the player ~1.9m off the platform.
+      s.y = m.y + m.hy;
       s.z += m.z - m.prevZ;
     }
 
@@ -329,20 +343,22 @@ export default function Player({
     s.state = !s.grounded ? 'air' : mag > 0.05 ? 'run' : 'idle';
 
     // ── third-person follow camera with occlusion raycast ──
-    const pitch = input.pitch;
-    const dirX = Math.sin(yaw) * Math.cos(pitch);
-    const dirY = -Math.sin(pitch);
-    const dirZ = Math.cos(yaw) * Math.cos(pitch);
+    // Rate-clamp camera yaw/pitch toward input. Below the threshold the camera
+    // tracks the mouse 1:1 (no lag). Above it, the camera arcs around the
+    // orbit ring at the clamped angular speed — never chord-cutting through
+    // the player on a fast flick.
+    rateClampAngles(s, input.yaw, input.pitch, cdt);
+    const dirX = Math.sin(s.camYaw) * Math.cos(s.camPitch);
+    const dirY = -Math.sin(s.camPitch);
+    const dirZ = Math.cos(s.camYaw) * Math.cos(s.camPitch);
     const tx = s.x;
     const ty = s.y + 1;
     const tz = s.z;
     // Raycast from camera target outward to ideal cam pos; pull camera in on hit.
-    const hit = rayHitDistance(tx, ty, tz, dirX, dirY, dirZ, CAMERA_DIST, boxes);
-    const actualDist = Math.max(CAMERA_MIN_DIST, Math.min(CAMERA_DIST, hit - CAMERA_PAD));
-    const idealX = tx + dirX * actualDist;
-    const idealY = ty + dirY * actualDist;
-    const idealZ = tz + dirZ * actualDist;
-    _camTarget.set(idealX, idealY, idealZ);
+    const desiredDist = input.cameraDist;
+    const hit = rayHitDistance(tx, ty, tz, dirX, dirY, dirZ, desiredDist, boxes);
+    const actualDist = Math.max(CAMERA_MIN_DIST, Math.min(desiredDist, hit - CAMERA_PAD));
+    _camTarget.set(tx + dirX * actualDist, ty + dirY * actualDist, tz + dirZ * actualDist);
     camera.position.lerp(_camTarget, 1 - Math.pow(CAMERA_LERP_TAU, cdt));
     camera.lookAt(s.x, s.y + 0.9, s.z);
 
@@ -365,4 +381,34 @@ function wrapPi(a: number): number {
   while (a > Math.PI) a -= Math.PI * 2;
   while (a < -Math.PI) a += Math.PI * 2;
   return a;
+}
+
+/** Ease the camera's stored yaw/pitch toward the target yaw/pitch at up to
+ *  CAMERA_MAX_ANG_SPEED rad/sec. Below that, the camera tracks the mouse
+ *  exactly (no smoothing). Above it, the camera lags behind smoothly so the
+ *  follow position stays on the orbit ring instead of chord-cutting across it. */
+function rateClampAngles(
+  s: { camYaw: number; camPitch: number },
+  targetYaw: number, targetPitch: number, dt: number,
+): void {
+  if (isNaN(s.camYaw)) {
+    s.camYaw = targetYaw;
+    s.camPitch = targetPitch;
+    return;
+  }
+  const maxStep = CAMERA_MAX_ANG_SPEED * dt;
+  // Yaw is unbounded — use shortest-path delta so we don't unwind multiple turns.
+  const yawErr = wrapPi(targetYaw - s.camYaw);
+  if (Math.abs(yawErr) > maxStep) {
+    s.camYaw += Math.sign(yawErr) * maxStep;
+  } else {
+    s.camYaw = targetYaw;
+  }
+  // Pitch is already clamped at the input layer — direct delta is fine.
+  const pitchErr = targetPitch - s.camPitch;
+  if (Math.abs(pitchErr) > maxStep) {
+    s.camPitch += Math.sign(pitchErr) * maxStep;
+  } else {
+    s.camPitch = targetPitch;
+  }
 }
