@@ -48,8 +48,13 @@ export function stepPlayer(opts: {
 
   if (!opts.skipBoxCollisions) {
     const headY = feetY + PLAYER.height;
+    // 1mm skin on the Y-overlap test — without this, a player standing
+    // exactly on a box top can drift below `topY` by a single ULP from
+    // upstream float math, fire the overlap check, and get shoved sideways
+    // by the full penetration depth (catastrophic on big movers).
+    const SKIN = 1e-3;
     for (const b of opts.boxes) {
-      const overlapsY = headY > b.y - b.hy && feetY < b.y + b.hy;
+      const overlapsY = headY > b.y - b.hy + SKIN && feetY < b.y + b.hy - SKIN;
       if (!overlapsY) continue;
       const dx = feetX - b.x;
       const dz = feetZ - b.z;
