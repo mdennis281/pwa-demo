@@ -126,7 +126,7 @@ export default function TouchControls({ active }: { active: boolean }) {
         onPointerUp={() => { input.jumpHeld = false; }}
         onPointerCancel={() => { input.jumpHeld = false; }}
         onPointerLeave={() => { input.jumpHeld = false; }}
-        className="absolute bottom-8 right-8 w-20 h-20 rounded-full bg-brand-500/90 text-slate-950 font-bold text-lg shadow-lg active:scale-95"
+        className="absolute bottom-8 right-8 w-28 h-28 rounded-full bg-brand-500/50 text-slate-950 font-bold text-xl shadow-lg active:scale-95 backdrop-blur-sm"
       >
         JUMP
       </button>

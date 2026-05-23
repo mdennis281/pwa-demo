@@ -74,12 +74,13 @@ export default function DebugPanel({
 
   return (
     <>
-      {/* Bug button */}
+      {/* Bug button — anchored to the upper-right of the altitude counter
+          (altitude card sits at top-4 left-4 and is ~140px wide). */}
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         title="Debug panel"
-        className={`absolute bottom-16 right-4 z-40 w-8 h-8 rounded-lg flex items-center justify-center text-base transition ${
+        className={`absolute top-4 left-44 z-40 w-8 h-8 rounded-lg flex items-center justify-center text-base transition ${
           open
             ? 'bg-slate-700/90 text-white border border-slate-500/60'
             : 'bg-slate-900/60 text-slate-400 hover:text-slate-200 border border-slate-700/40'
@@ -89,7 +90,7 @@ export default function DebugPanel({
       </button>
 
       {open && (
-        <div className="absolute bottom-28 right-4 z-40 bg-slate-950/95 backdrop-blur border border-slate-700 rounded-xl shadow-2xl w-72 p-4 space-y-4 text-xs font-mono">
+        <div className="absolute top-16 left-44 z-40 bg-slate-950/95 backdrop-blur border border-slate-700 rounded-xl shadow-2xl w-72 p-4 space-y-4 text-xs font-mono">
           <div className="flex items-center justify-between">
             <span className="text-slate-400 text-[10px] uppercase tracking-wider">debug</span>
             <button onClick={() => setOpen(false)} className="text-slate-600 hover:text-slate-300 leading-none">×</button>
