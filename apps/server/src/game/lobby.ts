@@ -1,14 +1,16 @@
 import { randomBytes } from 'node:crypto';
-import {
-  OFFICIAL_HOST_ID,
-  OFFICIAL_LOBBY_ID,
-  type LobbyInfo,
-  type LobbyState,
-  type LobbyPlayer,
-  type Role,
+import type {
+  LobbyInfo,
+  LobbyState,
+  LobbyPlayer,
+  Role,
 } from '@pwa-demo/shared';
 
-export { OFFICIAL_LOBBY_ID, OFFICIAL_HOST_ID };
+// Duplicated from packages/shared because that package is consumed as raw
+// TS source; the compiled Node server can't import .ts at runtime. If you
+// change either value, also change it in packages/shared/src/index.ts.
+export const OFFICIAL_LOBBY_ID = 'tower-official';
+export const OFFICIAL_HOST_ID = 'SYSTEM';
 
 /** True if this lobby is the dedicated, always-on Official Server. */
 export function isOfficial(lobby: { id: string } | undefined | null): boolean {

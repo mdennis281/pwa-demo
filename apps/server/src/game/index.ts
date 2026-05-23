@@ -1,12 +1,12 @@
 import type { Server, Socket } from 'socket.io';
-import {
-  OFFICIAL_LOBBY_ID,
-  type ClientToServerEvents,
-  type ServerToClientEvents,
-  type GameSnapshot,
-  type PlayerSnapshot,
+import type {
+  ClientToServerEvents,
+  ServerToClientEvents,
+  GameSnapshot,
+  PlayerSnapshot,
 } from '@pwa-demo/shared';
 import {
+  OFFICIAL_LOBBY_ID,
   allLobbies,
   createLobby,
   ensureOfficialLobby,
