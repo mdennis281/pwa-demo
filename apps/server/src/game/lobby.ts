@@ -1,10 +1,19 @@
 import { randomBytes } from 'node:crypto';
-import type {
-  LobbyInfo,
-  LobbyState,
-  LobbyPlayer,
-  Role,
+import {
+  OFFICIAL_HOST_ID,
+  OFFICIAL_LOBBY_ID,
+  type LobbyInfo,
+  type LobbyState,
+  type LobbyPlayer,
+  type Role,
 } from '@pwa-demo/shared';
+
+export { OFFICIAL_LOBBY_ID, OFFICIAL_HOST_ID };
+
+/** True if this lobby is the dedicated, always-on Official Server. */
+export function isOfficial(lobby: { id: string } | undefined | null): boolean {
+  return lobby?.id === OFFICIAL_LOBBY_ID;
+}
 
 export type ServerPlayer = {
   socketId: string;
@@ -19,6 +28,9 @@ export type ServerPlayer = {
   yaw: number;
   state: 'idle' | 'run' | 'air';
   lastInputAt: number;
+  /** When the player joined the lobby. Used to compute session length for
+   *  persisted high scores on the Official Server. */
+  joinedAt: number;
 };
 
 export type Lobby = {
@@ -41,6 +53,25 @@ const MAX_LOBBY_NAME = 40;
 function sanitize(name: string, max: number, fallback: string): string {
   const trimmed = (name ?? '').toString().trim().slice(0, max);
   return trimmed || fallback;
+}
+
+/** Create-or-return the always-on Official Server lobby. Idempotent; safe to
+ *  call from boot and again from any join path. hostId is a sentinel so no
+ *  real socket can ever pass the host-only admin guards. */
+export function ensureOfficialLobby(): Lobby {
+  const existing = lobbies.get(OFFICIAL_LOBBY_ID);
+  if (existing) return existing;
+  const lobby: Lobby = {
+    id: OFFICIAL_LOBBY_ID,
+    name: '★ Tower Climb — Official Server',
+    hostId: OFFICIAL_HOST_ID,
+    maxPlayers: MAX_PLAYERS,
+    paused: false,
+    createdAt: Date.now(),
+    players: new Map(),
+  };
+  lobbies.set(OFFICIAL_LOBBY_ID, lobby);
+  return lobby;
 }
 
 export function createLobby(opts: {
@@ -74,6 +105,7 @@ export function createLobby(opts: {
     yaw: 0,
     state: 'idle',
     lastInputAt: Date.now(),
+    joinedAt: Date.now(),
   });
   lobbies.set(id, lobby);
   playerLobby.set(opts.socketId, id);
@@ -104,31 +136,46 @@ export function joinLobby(opts: {
     yaw: 0,
     state: 'idle',
     lastInputAt: Date.now(),
+    joinedAt: Date.now(),
   });
   playerLobby.set(opts.socketId, opts.lobbyId);
   return { ok: true, lobby };
 }
 
-export function leaveLobby(socketId: string): { lobbyId: string; dissolved: boolean } | null {
+export function leaveLobby(socketId: string): {
+  lobbyId: string;
+  dissolved: boolean;
+  /** The player record that left, if any. Caller uses this to persist
+   *  final stats (e.g. official-server high scores). */
+  player: ServerPlayer | null;
+} | null {
   const lobbyId = playerLobby.get(socketId);
   if (!lobbyId) return null;
   const lobby = lobbies.get(lobbyId);
   playerLobby.delete(socketId);
-  if (!lobby) return { lobbyId, dissolved: false };
+  if (!lobby) return { lobbyId, dissolved: false, player: null };
 
+  const player = lobby.players.get(socketId) ?? null;
   lobby.players.delete(socketId);
 
   if (lobby.players.size === 0) {
+    // The Official Server never dissolves — it's the persistent rendezvous.
+    if (isOfficial(lobby)) return { lobbyId, dissolved: false, player };
     lobbies.delete(lobbyId);
-    return { lobbyId, dissolved: true };
+    return { lobbyId, dissolved: true, player };
   }
 
   if (lobby.hostId === socketId) {
-    const newHost = [...lobby.players.values()][0];
-    lobby.hostId = newHost.socketId;
-    newHost.isHost = true;
+    // Official Server has a sentinel host (OFFICIAL_HOST_ID), so this branch
+    // never fires for it — the check above (`hostId === socketId`) is false
+    // for any real socket. Defensive guard kept for clarity.
+    if (!isOfficial(lobby)) {
+      const newHost = [...lobby.players.values()][0];
+      lobby.hostId = newHost.socketId;
+      newHost.isHost = true;
+    }
   }
-  return { lobbyId, dissolved: false };
+  return { lobbyId, dissolved: false, player };
 }
 
 export function getLobby(lobbyId: string): Lobby | undefined {
@@ -145,12 +192,19 @@ export function listLobbies(): LobbyInfo[] {
     .map((l) => ({
       id: l.id,
       name: l.name,
-      hostName: l.players.get(l.hostId)?.displayName ?? 'unknown',
+      hostName: isOfficial(l)
+        ? 'Dedicated Server'
+        : l.players.get(l.hostId)?.displayName ?? 'unknown',
       playerCount: l.players.size,
       maxPlayers: l.maxPlayers,
       createdAt: l.createdAt,
     }))
-    .sort((a, b) => b.createdAt - a.createdAt);
+    // Official server pinned at the top, then most-recently-created lobbies.
+    .sort((a, b) => {
+      if (a.id === OFFICIAL_LOBBY_ID) return -1;
+      if (b.id === OFFICIAL_LOBBY_ID) return 1;
+      return b.createdAt - a.createdAt;
+    });
 }
 
 export function lobbyToState(lobby: Lobby): LobbyState {

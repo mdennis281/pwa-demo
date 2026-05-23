@@ -46,6 +46,32 @@ def _install_node20(r: Remote) -> None:
     )
 
 
+def _install_postgres(r: Remote) -> None:
+    """Install Postgres + create the pwademo role/db matching the .env URL.
+
+    The new tower-leaderboard arch persists session high scores; without a
+    local DB, getDb() returns null and the feature silently no-ops. Idempotent:
+    apt skips if psql is present, role/db creation guards on pg_roles/pg_database.
+    """
+    if _missing(r, "psql"):
+        print("  installing postgresql…")
+        _apt_install(r, ["postgresql"])
+    else:
+        print("  postgresql already installed")
+    r.run("systemctl enable --now postgresql", sudo=True, check=False)
+    r.run(
+        "sudo -u postgres psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='pwademo'\" "
+        "| grep -q 1 || sudo -u postgres psql -c "
+        "\"CREATE ROLE pwademo LOGIN PASSWORD 'pwademo'\"",
+        sudo=True,
+    )
+    r.run(
+        "sudo -u postgres psql -tAc \"SELECT 1 FROM pg_database WHERE datname='pwademo'\" "
+        "| grep -q 1 || sudo -u postgres createdb -O pwademo pwademo",
+        sudo=True,
+    )
+
+
 def _ensure_user(r: Remote, user: str, home: str) -> None:
     out = r.run(f"getent passwd {shlex.quote(user)} || true", stream=False)
     if out.stdout.strip():
@@ -172,7 +198,7 @@ def bootstrap(*, quiet: bool = False) -> None:
     print(f"=== bootstrap {TARGET.user}@{TARGET.host} ===")
     with Remote(quiet=quiet) as r:
         # 1. base packages
-        print("[1/9] base packages")
+        print("[1/10] base packages")
         _apt_install(r, [
             "ca-certificates", "curl", "git", "build-essential",
             "nginx", "policykit-1",
@@ -184,15 +210,19 @@ def bootstrap(*, quiet: bool = False) -> None:
         r.run("systemctl enable --now avahi-daemon", sudo=True, check=False)
 
         # 2. node 20
-        print("[2/9] node 20")
+        print("[2/10] node 20")
         _install_node20(r)
 
-        # 3. service user
-        print("[3/9] service user")
+        # 3. postgres + pwademo role/db (tower leaderboard storage)
+        print("[3/10] postgresql")
+        _install_postgres(r)
+
+        # 4. service user
+        print("[4/10] service user")
         _ensure_user(r, "pwademo", TARGET.app_root)
 
-        # 4. directory layout
-        print("[4/9] app dirs")
+        # 5. directory layout
+        print("[5/10] app dirs")
         r.run(
             f"mkdir -p {TARGET.app_root}/bin {TARGET.app_root}/state {TARGET.app_root}/repo && "
             f"chown -R pwademo:pwademo {TARGET.app_root} && "
@@ -202,26 +232,26 @@ def bootstrap(*, quiet: bool = False) -> None:
             sudo=True,
         )
 
-        # 5. clone repo + .env
-        print("[5/9] repo + .env")
+        # 6. clone repo + .env
+        print("[6/10] repo + .env")
         _clone_repo(r, TARGET.app_root, TARGET.repo_url, TARGET.branch)
         _upload_env(r, TARGET.app_root)
 
-        # 6. systemd units + polkit rule
-        print("[6/9] systemd + polkit")
+        # 7. systemd units + polkit rule
+        print("[7/10] systemd + polkit")
         _install_systemd(r)
         _install_polkit(r)
 
-        # 7. nginx site
-        print("[7/9] nginx")
+        # 8. nginx site
+        print("[8/10] nginx")
         _install_nginx_site(r)
 
-        # 8. first build
-        print("[8/9] first build (npm ci + npm run build)")
+        # 9. first build
+        print("[9/10] first build (npm ci + npm run build)")
         _first_build(r, TARGET.app_root)
 
-        # 9. enable + start
-        print("[9/9] enable + start")
+        # 10. enable + start
+        print("[10/10] enable + start")
         _enable_services(r)
 
         # diagnostics

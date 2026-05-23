@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { LobbyInfo, LobbyResult, Role } from '@pwa-demo/shared';
+import { OFFICIAL_LOBBY_ID, type LobbyInfo, type LobbyResult, type Role, type TowerHighScore } from '@pwa-demo/shared';
 import { getSocket } from '../../lib/socket';
 import CharacterPicker from './CharacterPicker';
 
@@ -20,6 +20,7 @@ export default function LobbyList({
   onEntered: (lobby: LobbyResult & { ok: true }, role: Role, character: number) => void;
 }) {
   const [lobbies, setLobbies] = useState<LobbyInfo[]>([]);
+  const [leaderboard, setLeaderboard] = useState<TowerHighScore[]>([]);
   const [name, setName] = useState(loadName);
   const [character, setCharacter] = useState<number>(loadChar);
   const [creating, setCreating] = useState(false);
@@ -40,9 +41,12 @@ export default function LobbyList({
     const s = getSocket();
     s.emit('lobby:browser:join');
     const onList = (list: LobbyInfo[]) => setLobbies(list);
+    const onLeaderboard = (top: TowerHighScore[]) => setLeaderboard(top);
     s.on('lobby:list', onList);
+    s.on('tower:leaderboard', onLeaderboard);
     return () => {
       s.off('lobby:list', onList);
+      s.off('tower:leaderboard', onLeaderboard);
       s.emit('lobby:browser:leave');
     };
   }, []);
@@ -85,6 +89,23 @@ export default function LobbyList({
     );
   }
 
+  function handleQuickPlay() {
+    setBusy(true);
+    setError(null);
+    getSocket().emit(
+      'lobby:quick-join',
+      { displayName: safeName(), character },
+      (res: LobbyResult) => {
+        setBusy(false);
+        if (!res.ok) {
+          setError(res.error);
+          return;
+        }
+        onEntered(res, 'player', character);
+      },
+    );
+  }
+
   return (
     <div className="p-8 max-w-5xl mx-auto">
       <h1 className="text-3xl font-bold mb-2">Tower Climb</h1>
@@ -116,9 +137,31 @@ export default function LobbyList({
         <CharacterPicker value={character} onChange={setCharacter} />
       </section>
 
+      {/* Quick Play — drops the user straight into the always-on dedicated
+          server. Highest-affordance action on the page so first-time visitors
+          can be playing in one click. */}
+      <section className="bg-gradient-to-r from-amber-500/10 to-amber-500/5 border border-amber-500/40 rounded-lg p-5 mb-6">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <h2 className="text-sm font-medium text-amber-300 uppercase tracking-wider">★ official server</h2>
+            <p className="text-slate-300 text-sm mt-1">
+              Persistent always-on world. Drop in, climb, get on the leaderboard.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleQuickPlay}
+            disabled={busy}
+            className="px-5 py-2.5 rounded-md bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-sm disabled:opacity-50 shadow-md"
+          >
+            {busy ? 'joining…' : 'Quick Play →'}
+          </button>
+        </div>
+      </section>
+
       <section className="bg-slate-900 border border-slate-800 rounded-lg p-5 mb-6">
         <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
-          <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wider">host a lobby</h2>
+          <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wider">host a private lobby</h2>
           <button
             type="button"
             onClick={() => setCreating((v) => !v)}
@@ -167,22 +210,56 @@ export default function LobbyList({
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {lobbies.map((l) => (
-              <button
-                key={l.id}
-                type="button"
-                onClick={() => handleJoin(l.id)}
-                disabled={busy || l.playerCount >= l.maxPlayers}
-                className="bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-lg p-3 text-left transition disabled:opacity-50"
-              >
-                <div className="flex items-baseline justify-between">
-                  <div className="font-medium truncate">{l.name}</div>
-                  <div className="text-xs text-slate-500 tabular-nums">{l.playerCount}/{l.maxPlayers}</div>
-                </div>
-                <div className="text-xs text-slate-500">hosted by {l.hostName}</div>
-              </button>
-            ))}
+            {lobbies.map((l) => {
+              const official = l.id === OFFICIAL_LOBBY_ID;
+              return (
+                <button
+                  key={l.id}
+                  type="button"
+                  onClick={() => (official ? handleQuickPlay() : handleJoin(l.id))}
+                  disabled={busy || l.playerCount >= l.maxPlayers}
+                  className={`rounded-lg p-3 text-left transition disabled:opacity-50 ${
+                    official
+                      ? 'bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/40'
+                      : 'bg-slate-950 hover:bg-slate-800 border border-slate-800'
+                  }`}
+                >
+                  <div className="flex items-baseline justify-between">
+                    <div className={`font-medium truncate ${official ? 'text-amber-200' : ''}`}>{l.name}</div>
+                    <div className="text-xs text-slate-500 tabular-nums">{l.playerCount}/{l.maxPlayers}</div>
+                  </div>
+                  <div className="text-xs text-slate-500">hosted by {l.hostName}</div>
+                </button>
+              );
+            })}
           </div>
+        )}
+      </section>
+
+      {/* Persistent leaderboard — cross-session scores from the Official
+          Server. Empty state communicates that scores are recorded when a
+          player leaves the server, so a new visitor knows what to expect. */}
+      <section className="mt-6 bg-slate-900 border border-slate-800 rounded-lg p-5">
+        <div className="flex items-baseline justify-between mb-3">
+          <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wider">
+            ★ all-time leaderboard
+          </h2>
+          <span className="text-[10px] text-slate-600 uppercase tracking-wider">official server</span>
+        </div>
+        {leaderboard.length === 0 ? (
+          <div className="text-sm text-slate-500 py-4 text-center">
+            no scores yet — be the first to climb the Official Server.
+          </div>
+        ) : (
+          <ol className="space-y-1">
+            {leaderboard.map((s, i) => (
+              <li key={`${s.displayName}-${s.character}-${s.achievedAt}`} className="flex items-baseline gap-2 text-sm">
+                <span className="w-6 text-right text-slate-500 tabular-nums">{i + 1}.</span>
+                <span className="flex-1 truncate text-slate-200">{s.displayName}</span>
+                <span className="font-mono tabular-nums text-amber-300">{s.maxHeight.toFixed(1)}m</span>
+              </li>
+            ))}
+          </ol>
         )}
       </section>
 

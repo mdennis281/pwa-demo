@@ -104,6 +104,18 @@ export type ServerDebugStats = {
   txBytesEst: number;
 };
 
+/** The single hardcoded "Official Server" lobby. Always-on, never dissolves,
+ *  no host (admin actions are refused). Clients join via lobby:quick-join. */
+export const OFFICIAL_LOBBY_ID = 'tower-official';
+export const OFFICIAL_HOST_ID = 'SYSTEM';
+
+export type TowerHighScore = {
+  displayName: string;
+  character: number;
+  maxHeight: number;
+  achievedAt: number; // unix ms
+};
+
 export interface ServerToClientEvents {
   'clients:update': (clients: ClientInfo[]) => void;
   'pong:reply': (sentAt: number) => void;
@@ -111,6 +123,9 @@ export interface ServerToClientEvents {
   'lobby:state': (state: LobbyState | null) => void;
   'game:snapshot': (snap: GameSnapshot) => void;
   'debug:server-stats': (stats: ServerDebugStats) => void;
+  /** Pushed to lobby-browser room whenever the official-server leaderboard
+   *  changes (player leaves, new high score posted). */
+  'tower:leaderboard': (top: TowerHighScore[]) => void;
 }
 
 export interface ClientToServerEvents {
@@ -121,6 +136,9 @@ export interface ClientToServerEvents {
   'lobby:browser:leave': () => void;
   'lobby:create': (opts: LobbyCreate, cb: (r: LobbyResult) => void) => void;
   'lobby:join': (opts: LobbyJoin, cb: (r: LobbyResult) => void) => void;
+  /** Drop into the always-on Official Server lobby in one click. Idempotent —
+   *  if the caller is already in the official lobby, returns its current state. */
+  'lobby:quick-join': (opts: Pick<LobbyJoin, 'displayName' | 'character'>, cb: (r: LobbyResult) => void) => void;
   'lobby:leave': () => void;
   'game:input': (input: LocalInput) => void;
   'admin:action': (action: AdminAction, cb: (r: AdminResult) => void) => void;

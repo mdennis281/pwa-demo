@@ -1,13 +1,15 @@
 import type { Server, Socket } from 'socket.io';
-import type {
-  ClientToServerEvents,
-  ServerToClientEvents,
-  GameSnapshot,
-  PlayerSnapshot,
+import {
+  OFFICIAL_LOBBY_ID,
+  type ClientToServerEvents,
+  type ServerToClientEvents,
+  type GameSnapshot,
+  type PlayerSnapshot,
 } from '@pwa-demo/shared';
 import {
   allLobbies,
   createLobby,
+  ensureOfficialLobby,
   getLobbyOf,
   joinLobby,
   kickPlayer,
@@ -19,9 +21,15 @@ import {
   updateLobbyConfig,
 } from './lobby.js';
 import { serverMetrics } from '../metrics.js';
+import {
+  ensureTowerScoresTable,
+  recordTowerHighScore,
+  topTowerHighScores,
+} from '../db/towerScores.js';
 
 const BROWSER_ROOM = 'lobby:browser';
 const TICK_HZ = 20;
+const LEADERBOARD_LIMIT = 10;
 
 function lobbyRoom(id: string): string {
   return `lobby:${id}`;
@@ -29,6 +37,16 @@ function lobbyRoom(id: string): string {
 
 function broadcastBrowser(io: Server<ClientToServerEvents, ServerToClientEvents>): void {
   io.to(BROWSER_ROOM).emit('lobby:list', listLobbies());
+}
+
+/** Push the current top-N leaderboard to every browser-room subscriber.
+ *  Called on boot, on every player leave from the Official Server, and any
+ *  time a Quick-Join writes a fresh score. Cheap (small JSON, low fanout). */
+async function broadcastLeaderboard(
+  io: Server<ClientToServerEvents, ServerToClientEvents>,
+): Promise<void> {
+  const top = await topTowerHighScores(LEADERBOARD_LIMIT);
+  io.to(BROWSER_ROOM).emit('tower:leaderboard', top);
 }
 
 function broadcastLobbyState(
@@ -76,6 +94,30 @@ function startTickLoop(io: Server<ClientToServerEvents, ServerToClientEvents>): 
 
 let stopTick: (() => void) | null = null;
 let getPingFn: (socketId: string) => number | null = () => null;
+let bootstrapped = false;
+
+/** Run leaveLobby + (if the departing player was on the Official Server with
+ *  a real climb height) persist their session high score and republish the
+ *  leaderboard. Returns the leaveLobby result so callers can broadcast room
+ *  state changes as before. */
+async function handleLeave(
+  io: Server<ClientToServerEvents, ServerToClientEvents>,
+  socketId: string,
+): Promise<ReturnType<typeof leaveLobby>> {
+  const r = leaveLobby(socketId);
+  if (!r) return null;
+  if (r.lobbyId === OFFICIAL_LOBBY_ID && r.player && r.player.maxHeight > 0) {
+    await recordTowerHighScore({
+      displayName: r.player.displayName,
+      character: r.player.character,
+      maxHeight: r.player.maxHeight,
+      sessionMs: Date.now() - r.player.joinedAt,
+    });
+    // Fire-and-forget the rebroadcast — we don't want to block disconnect.
+    void broadcastLeaderboard(io);
+  }
+  return r;
+}
 
 export function attachGame(
   io: Server<ClientToServerEvents, ServerToClientEvents>,
@@ -86,22 +128,40 @@ export function attachGame(
     getPingFn = getPing;
     stopTick = startTickLoop(io);
   }
+  if (!bootstrapped) {
+    bootstrapped = true;
+    // 1. Make sure the persistent DB table exists. Non-fatal if no DB.
+    // 2. Materialize the Official Server lobby so it's already in
+    //    listLobbies() the moment the first client subscribes.
+    // 3. Prime the leaderboard cache so the first browser:join receives it.
+    void (async () => {
+      await ensureTowerScoresTable();
+      ensureOfficialLobby();
+      await broadcastLeaderboard(io);
+      console.log('[tower] Official Server lobby is live (' + OFFICIAL_LOBBY_ID + ')');
+    })();
+  }
 
   socket.on('lobby:browser:join', () => {
     socket.join(BROWSER_ROOM);
     socket.emit('lobby:list', listLobbies());
+    // Push the current top-N high scores on subscribe so the lobby browser
+    // can render the persistent leaderboard immediately (no extra round-trip).
+    void topTowerHighScores(LEADERBOARD_LIMIT).then((top) => {
+      socket.emit('tower:leaderboard', top);
+    });
   });
 
   socket.on('lobby:browser:leave', () => {
     socket.leave(BROWSER_ROOM);
   });
 
-  socket.on('lobby:create', (opts, cb) => {
+  socket.on('lobby:create', async (opts, cb) => {
     // If already in a lobby, leave it first.
     const existing = getLobbyOf(socket.id);
     if (existing) {
       socket.leave(lobbyRoom(existing.id));
-      const r = leaveLobby(socket.id);
+      const r = await handleLeave(io, socket.id);
       if (r) broadcastLobbyState(io, r.lobbyId);
     }
     const lobby = createLobby({
@@ -117,11 +177,11 @@ export function attachGame(
     broadcastBrowser(io);
   });
 
-  socket.on('lobby:join', (opts, cb) => {
+  socket.on('lobby:join', async (opts, cb) => {
     const existing = getLobbyOf(socket.id);
     if (existing && existing.id !== opts.lobbyId) {
       socket.leave(lobbyRoom(existing.id));
-      const r = leaveLobby(socket.id);
+      const r = await handleLeave(io, socket.id);
       if (r) broadcastLobbyState(io, r.lobbyId);
     }
     const result = joinLobby({
@@ -140,11 +200,37 @@ export function attachGame(
     broadcastBrowser(io);
   });
 
-  socket.on('lobby:leave', () => {
+  socket.on('lobby:quick-join', async (opts, cb) => {
+    // Drop straight into the Official Server. Idempotent — if the caller is
+    // already on it, we just hand back the current state without churn.
+    const existing = getLobbyOf(socket.id);
+    if (existing && existing.id !== OFFICIAL_LOBBY_ID) {
+      socket.leave(lobbyRoom(existing.id));
+      const r = await handleLeave(io, socket.id);
+      if (r) broadcastLobbyState(io, r.lobbyId);
+    }
+    ensureOfficialLobby();
+    const result = joinLobby({
+      socketId: socket.id,
+      lobbyId: OFFICIAL_LOBBY_ID,
+      displayName: opts.displayName,
+      character: opts.character,
+    });
+    if (!result.ok) {
+      cb({ ok: false, error: result.error });
+      return;
+    }
+    socket.join(lobbyRoom(result.lobby.id));
+    cb({ ok: true, lobby: lobbyToState(result.lobby) });
+    broadcastLobbyState(io, result.lobby.id);
+    broadcastBrowser(io);
+  });
+
+  socket.on('lobby:leave', async () => {
     const existing = getLobbyOf(socket.id);
     if (!existing) return;
     socket.leave(lobbyRoom(existing.id));
-    const r = leaveLobby(socket.id);
+    const r = await handleLeave(io, socket.id);
     socket.emit('lobby:state', null);
     if (r) {
       if (!r.dissolved) broadcastLobbyState(io, r.lobbyId);
@@ -184,8 +270,8 @@ export function attachGame(
     }
   });
 
-  socket.on('disconnect', () => {
-    const r = leaveLobby(socket.id);
+  socket.on('disconnect', async () => {
+    const r = await handleLeave(io, socket.id);
     if (r) {
       if (!r.dissolved) broadcastLobbyState(io, r.lobbyId);
       broadcastBrowser(io);
