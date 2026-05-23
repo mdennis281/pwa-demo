@@ -5,6 +5,17 @@ import { INLINE_DEMOS } from '../lib/demos';
 import { useCapabilityStatuses } from '../lib/useCapabilityStatuses';
 import { useHashScrollHighlight } from '../components/DemoSidebar';
 
+/** Standalone routes that aren't tied to a single capability check.
+ *  Kept in sync with Home.tsx — both files surface these. */
+const STANDALONE_DEMOS: Array<{ to: string; title: string; blurb: string; category: Category }> = [
+  {
+    to: '/game',
+    title: 'Tower Climb',
+    blurb: '3D multiplayer climb. three.js + react-three-fiber, socket.io for realtime sync.',
+    category: 'Graphics & compute',
+  },
+];
+
 const STATUS_DOT: Record<Support, string> = {
   supported: 'bg-emerald-400',
   partial: 'bg-amber-400',
@@ -90,6 +101,22 @@ export default function CategoryPage() {
           Has demo <span className="opacity-60">· {demoCount}</span>
         </Chip>
       </div>
+
+      {STANDALONE_DEMOS.filter((d) => d.category === category).map((d) => (
+        <Link
+          key={d.to}
+          to={d.to}
+          className="block mb-4 bg-gradient-to-br from-brand-600/20 to-slate-900 hover:from-brand-500/30 border border-brand-500/40 hover:border-brand-400 rounded-lg p-4 transition group"
+        >
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-amber-300 text-xs">★</span>
+            <div className="font-semibold text-brand-100 group-hover:text-white">{d.title}</div>
+            <span className="ml-auto text-[10px] uppercase tracking-wider text-slate-500">Featured</span>
+          </div>
+          <div className="text-xs text-slate-400 leading-snug">{d.blurb}</div>
+          <div className="mt-2 text-xs text-brand-300 group-hover:text-brand-200">Play now →</div>
+        </Link>
+      ))}
 
       {visible.length === 0 ? (
         <div className="text-sm text-slate-500 italic border border-dashed border-slate-800 rounded-lg p-6 text-center">

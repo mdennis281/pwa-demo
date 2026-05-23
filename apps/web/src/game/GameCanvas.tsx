@@ -1,5 +1,6 @@
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { Canvas } from '@react-three/fiber';
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Canvas, useThree } from '@react-three/fiber';
+import type * as THREE from 'three';
 import Player from './Player';
 import RemotePlayer from './RemotePlayer';
 import Spectator from './Spectator';
@@ -16,6 +17,31 @@ import { useMouseLook } from './controls/useMouseLook';
 import { input } from './controls/input';
 import type { GameSnapshot, LocalInput, LobbyState, Role } from '@pwa-demo/shared';
 import { getSocket } from '../lib/socket';
+
+/** Kick off shader compilation for every material in the scene up-front.
+ *  Without this, Three.js compiles each material lazily on its first draw
+ *  call — which on Firefox can take 50-100ms per program, causing meshes to
+ *  visibly "pop in" during the first few seconds of gameplay. With
+ *  `compileAsync` and KHR_parallel_shader_compile (supported by modern
+ *  Firefox / Chrome) all programs link in parallel before the first frame. */
+function ShaderPrecompiler() {
+  const gl = useThree((s) => s.gl);
+  const scene = useThree((s) => s.scene);
+  const camera = useThree((s) => s.camera);
+  useLayoutEffect(() => {
+    const r = gl as unknown as {
+      compileAsync?: (scene: THREE.Scene, camera: THREE.Camera) => Promise<unknown>;
+    };
+    if (typeof r.compileAsync === 'function') {
+      r.compileAsync(scene, camera).catch(() => {});
+    } else {
+      // Fallback: synchronous compile. Slower but matches Three.js's normal
+      // lazy behaviour, just front-loaded.
+      gl.compile(scene, camera);
+    }
+  }, [gl, scene, camera]);
+  return null;
+}
 
 export default function GameCanvas({
   lobby,
@@ -114,10 +140,25 @@ export default function GameCanvas({
     <div className="fixed inset-0 bg-slate-950 z-40">
       <Canvas
         shadows
+        // Cap pixel ratio: retina screens otherwise render at 2-3x, which
+        // Firefox's compositor handles much less efficiently than Chrome.
+        // 1.5x retains visible sharpness with a huge fill-rate saving.
+        dpr={[1, 1.5]}
+        gl={{
+          antialias: true,
+          // Hint to Firefox to pick the discrete GPU when available.
+          powerPreference: 'high-performance',
+          // We never read stencil or use a transparent canvas — turning these
+          // off frees framebuffer memory (matters on Firefox, where the
+          // default allocation is more conservative than Chrome).
+          stencil: false,
+          alpha: false,
+        }}
         camera={{ position: [10, 6, 10], fov: 65, near: 0.1, far: 5000 }}
         onCreated={({ gl }) => setCanvasEl(gl.domElement)}
       >
         <Suspense fallback={null}>
+          <ShaderPrecompiler />
           {/* Custom shader skydome — guaranteed visible gradient + soft sun */}
           <SkyDome
             topColor="#2f6db8"

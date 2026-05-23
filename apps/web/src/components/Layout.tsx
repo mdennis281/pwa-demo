@@ -17,9 +17,11 @@ export default function Layout() {
   }, []);
 
   return (
-    <div className="min-h-screen flex flex-col md:flex-row">
-      {/* Mobile top bar */}
-      <header className="md:hidden flex items-center justify-between bg-slate-900 border-b border-slate-800 px-4 py-3">
+    <div className="min-h-screen flex flex-col md:flex-row bg-slate-900 md:bg-transparent">
+      {/* Mobile top bar — pt-safe pushes content below the notch/rounded
+          corner in PWA mode (viewport-fit=cover); the slate-900 bg fills
+          the safe area so it doesn't look like a gap. */}
+      <header className="md:hidden sticky top-0 z-30 flex items-center justify-between bg-slate-900 border-b border-slate-800 px-4 py-3 pt-[max(env(safe-area-inset-top),0.75rem)] pl-[max(env(safe-area-inset-left),1rem)] pr-[max(env(safe-area-inset-right),1rem)]">
         <Link to="/" className="flex items-center gap-2" onClick={() => setMobileOpen(false)}>
           <img src="/logo.svg" alt="" className="w-7 h-7" />
           <div>
@@ -41,7 +43,7 @@ export default function Layout() {
         id="demo-sidebar"
         className={`${
           mobileOpen ? 'flex' : 'hidden'
-        } md:flex md:w-72 md:min-h-screen md:sticky md:top-0 md:max-h-screen bg-slate-900 border-r border-slate-800 p-4 flex-col gap-3`}
+        } md:flex md:w-72 md:min-h-screen md:sticky md:top-0 md:max-h-screen bg-slate-900 border-r border-slate-800 p-4 pb-[max(env(safe-area-inset-bottom),1rem)] pl-[max(env(safe-area-inset-left),1rem)] pr-[max(env(safe-area-inset-right),1rem)] md:pb-4 md:pl-4 md:pr-4 flex-col gap-3`}
       >
         <Link to="/" className="hidden md:flex items-center gap-2" onClick={() => setMobileOpen(false)}>
           <img src="/logo.svg" alt="" className="w-8 h-8" />
@@ -68,7 +70,7 @@ export default function Layout() {
         </div>
       </aside>
 
-      <main className="flex-1 min-w-0">
+      <main className="flex-1 min-w-0 bg-slate-950 pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
         <Outlet />
       </main>
     </div>

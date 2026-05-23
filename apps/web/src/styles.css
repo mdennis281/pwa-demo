@@ -22,3 +22,12 @@ body {
 .titlebar-area {
   padding-top: env(titlebar-area-height, 0);
 }
+
+/* Safe-area insets for PWA on notched / rounded-corner displays.
+   `viewport-fit=cover` is set in index.html; without explicit padding,
+   header chrome ends up under the notch / clipped by the corner radius. */
+.pt-safe { padding-top: max(env(safe-area-inset-top), 0px); }
+.pb-safe { padding-bottom: max(env(safe-area-inset-bottom), 0px); }
+.pl-safe { padding-left: max(env(safe-area-inset-left), 0px); }
+.pr-safe { padding-right: max(env(safe-area-inset-right), 0px); }
+.px-safe { padding-left: max(env(safe-area-inset-left), 0px); padding-right: max(env(safe-area-inset-right), 0px); }

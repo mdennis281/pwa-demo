@@ -35,6 +35,28 @@ export default function Home() {
 
       <Summary totals={totals} />
 
+      {STANDALONE_DEMOS.length > 0 && (
+        <div className="mt-8">
+          <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">Featured demos</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {STANDALONE_DEMOS.map((d) => (
+              <Link
+                key={d.to}
+                to={d.to}
+                className="block bg-gradient-to-br from-brand-600/20 to-slate-900 hover:from-brand-500/30 border border-brand-500/40 hover:border-brand-400 rounded-lg p-4 transition group"
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-amber-300 text-xs">★</span>
+                  <div className="font-semibold text-brand-100 group-hover:text-white">{d.title}</div>
+                </div>
+                <div className="text-xs text-slate-400 leading-snug">{d.blurb}</div>
+                <div className="mt-2 text-xs text-brand-300 group-hover:text-brand-200">Play now →</div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">
         {CATEGORIES.map((cat) => (
           <CategoryCard key={cat} category={cat} statuses={statuses} />
@@ -84,7 +106,6 @@ function CategoryCard({ category, statuses }: { category: Category; statuses: Re
     (acc, c) => { acc[statuses[c.id] ?? 'unknown']++; return acc; },
     { supported: 0, partial: 0, unsupported: 0, unknown: 0 } as Record<Support, number>,
   );
-  const standalone = STANDALONE_DEMOS.filter((d) => d.category === category);
   const inlineDemos = caps.filter((c) => INLINE_DEMOS[c.id]);
 
   return (
@@ -102,20 +123,6 @@ function CategoryCard({ category, statuses }: { category: Category; statuses: Re
       </div>
 
       <SupportBar caps={caps} statuses={statuses} />
-
-      {standalone.length > 0 && (
-        <div className="mt-3">
-          <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Featured demo{standalone.length > 1 ? 's' : ''}</div>
-          <ul className="space-y-1">
-            {standalone.map((d) => (
-              <li key={d.to} className="text-xs">
-                <span className="text-brand-300 font-medium">{d.title}</span>
-                <span className="text-slate-500"> — {d.blurb}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
 
       <div className="mt-3">
         <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">
