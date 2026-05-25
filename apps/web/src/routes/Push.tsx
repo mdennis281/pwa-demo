@@ -1,5 +1,12 @@
-import { useEffect, useState } from 'react';
-import { getExistingSubscription, sendTest, subscribe, unsubscribe } from '../lib/push';
+import { useEffect, useRef, useState } from 'react';
+import {
+  getExistingSubscription,
+  onPushEvent,
+  scheduleDelayedTest,
+  sendTest,
+  subscribe,
+  unsubscribe,
+} from '../lib/push';
 
 export default function Push() {
   const [permission, setPermission] = useState<NotificationPermission>(
@@ -8,10 +15,41 @@ export default function Push() {
   const [sub, setSub] = useState<PushSubscription | null>(null);
   const [busy, setBusy] = useState(false);
   const [log, setLog] = useState<string[]>([]);
+  const [delaySec, setDelaySec] = useState(5);
+  // null = no scheduled push; otherwise the unix-ms target for the live tick.
+  const [firesAt, setFiresAt] = useState<number | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  // Hold the timeout that flips firesAt back to null after fire so the
+  // countdown clears cleanly without leaving the tick loop running.
+  const clearTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     getExistingSubscription().then(setSub).catch(() => {});
   }, []);
+
+  // Subscribe to SW broadcasts. This is the diagnostic path that proves the
+  // SW received the push even when the OS suppresses the notification UI
+  // (Focus Assist, system DND, per-app blocks etc.). Without this signal
+  // the user can't tell "didn't reach SW" from "reached SW but no popup".
+  useEffect(() => {
+    return onPushEvent((e) => {
+      if (e.type === 'push:received') {
+        append(`★ SW received push: "${e.title}"`);
+      } else if (e.type === 'push:shown') {
+        append('★ SW showed notification — check OS notification area / Focus Assist');
+      } else if (e.type === 'push:error') {
+        append(`★ SW showNotification error: ${e.message}`);
+      }
+    });
+  }, []);
+
+  // Tick the countdown only while one is active. Stops as soon as firesAt
+  // clears so we're not running setInterval forever in the background.
+  useEffect(() => {
+    if (firesAt === null) return;
+    const id = window.setInterval(() => setNowMs(Date.now()), 250);
+    return () => window.clearInterval(id);
+  }, [firesAt]);
 
   function append(line: string) {
     setLog((l) => [`${new Date().toLocaleTimeString()}  ${line}`, ...l].slice(0, 50));
@@ -64,6 +102,30 @@ export default function Push() {
     }
   }
 
+  async function handleScheduleDelayed() {
+    setBusy(true);
+    try {
+      const r = await scheduleDelayedTest(delaySec);
+      setFiresAt(r.firesAt);
+      append(`scheduled: fires in ${r.delaySeconds}s — safe to close this tab`);
+      // Clear the visible countdown a beat after fire so the user sees "0s"
+      // briefly. The actual push arrival is reported by the SW listener
+      // (★ SW received push) — that's the source of truth.
+      if (clearTimerRef.current !== null) window.clearTimeout(clearTimerRef.current);
+      clearTimerRef.current = window.setTimeout(() => {
+        setFiresAt(null);
+        clearTimerRef.current = null;
+      }, r.delaySeconds * 1000 + 500);
+    } catch (e) {
+      append(`delayed schedule failed: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const remainingMs = firesAt === null ? 0 : Math.max(0, firesAt - nowMs);
+  const remainingSec = Math.ceil(remainingMs / 1000);
+
   const installed =
     typeof window !== 'undefined' &&
     (window.matchMedia('(display-mode: standalone)').matches ||
@@ -90,7 +152,7 @@ export default function Push() {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2 mb-6">
+      <div className="flex flex-wrap gap-2 mb-3">
         <Btn onClick={handleRequestPermission} disabled={busy || permission === 'granted'}>
           1. Request permission
         </Btn>
@@ -103,6 +165,37 @@ export default function Push() {
         <Btn onClick={handleUnsubscribe} disabled={busy || !sub} variant="ghost">
           Unsubscribe
         </Btn>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 mb-6 bg-slate-900 border border-slate-800 rounded-lg p-3">
+        <span className="text-xs text-slate-400">Delayed send — close the tab and you'll still get pinged:</span>
+        <label className="flex items-center gap-1 text-xs text-slate-300">
+          <input
+            type="number"
+            min={1}
+            max={60}
+            step={1}
+            value={delaySec}
+            onChange={(e) => setDelaySec(Math.max(1, Math.min(60, Number(e.target.value) || 1)))}
+            disabled={busy || firesAt !== null}
+            className="w-16 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-sm font-mono disabled:opacity-50"
+            aria-label="Delay seconds"
+          />
+          <span className="text-slate-500">seconds</span>
+        </label>
+        <Btn onClick={handleScheduleDelayed} disabled={busy || !sub || firesAt !== null}>
+          Schedule
+        </Btn>
+        {firesAt !== null && (
+          <span
+            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-brand-500/15 border border-brand-500/40 text-brand-100 text-xs font-mono"
+            role="status"
+            aria-live="polite"
+          >
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-brand-400 animate-pulse" />
+            firing in {remainingSec}s
+          </span>
+        )}
       </div>
 
       {sub && (

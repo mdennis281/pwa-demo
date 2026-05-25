@@ -40,14 +40,41 @@ self.addEventListener('push', (event) => {
   const title = (data.title as string | undefined) ?? 'PWA Demo';
   const body = (data.body as string | undefined) ?? '';
   const url = (data.url as string | undefined) ?? '/';
-  event.waitUntil(
-    self.registration.showNotification(title, {
-      body,
-      icon: '/pwa-192x192.png',
-      badge: '/pwa-64x64.png',
-      data: { url },
-    } as NotificationOptions),
-  );
+  // Run both branches under waitUntil so the SW stays alive long enough for
+  // both the OS notification AND the client broadcast to complete.
+  event.waitUntil((async () => {
+    // Step 1: broadcast to any open clients FIRST so the page log can prove
+    // the SW received the push, even if the OS swallows the notification
+    // (Focus Assist, system DND, per-app blocks). This is the single most
+    // useful debug signal when "server says sent=1 but I see nothing".
+    await broadcastToClients({ type: 'push:received', title, body, url, at: Date.now() });
+    // Step 2: show the notification. requireInteraction keeps it visible
+    // until the user dismisses it — without that flag, notifications
+    // auto-fade in ~5s on most platforms and are trivially missed during
+    // demos. The per-event tag prevents Chrome from collapsing rapid
+    // testing sends into a single popup.
+    try {
+      await self.registration.showNotification(title, {
+        body,
+        icon: '/pwa-192x192.png',
+        badge: '/pwa-64x64.png',
+        tag: `push-${Date.now()}`,
+        timestamp: Date.now(),
+        requireInteraction: true,
+        data: { url },
+      } as NotificationOptions);
+      await broadcastToClients({ type: 'push:shown', at: Date.now() });
+    } catch (err) {
+      // showNotification can throw on platforms that have permission revoked
+      // mid-session, or when the SW lost activation. Telling the page lets
+      // the user see *why* the notification didn't appear.
+      await broadcastToClients({
+        type: 'push:error',
+        message: (err as Error).message ?? String(err),
+        at: Date.now(),
+      });
+    }
+  })());
 });
 
 self.addEventListener('notificationclick', (event) => {
@@ -72,4 +99,16 @@ self.addEventListener('message', (event) => {
 
 function safeJson(d: PushMessageData): Record<string, unknown> {
   try { return d.json(); } catch { return { body: d.text() }; }
+}
+
+/** Fan out a debug event to every open client window so the Push page can
+ *  render an in-page audit trail (received → shown). Fails silently — the
+ *  notification path is the real product; this is purely diagnostic. */
+async function broadcastToClients(message: Record<string, unknown>): Promise<void> {
+  try {
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const c of clients) c.postMessage(message);
+  } catch {
+    /* best effort */
+  }
 }

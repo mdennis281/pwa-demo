@@ -12,11 +12,16 @@ import {
 
 const DISMISS_KEY = 'pwa-install-dismissed-until';
 const DISMISS_MS = 24 * 60 * 60 * 1000;
+// Sticky "user told us they aren't installed" — set when they click
+// "show install steps anyway" from the maybe-installed inference. Stops us
+// from second-guessing them every page load.
+const NOT_INSTALLED_KEY = 'pwa-install-user-says-no';
+const NOT_INSTALLED_MS = 24 * 60 * 60 * 1000;
 // How long to wait for the browser to fire beforeinstallprompt before
-// falling back to manual instructions. Chrome typically fires within a few
-// hundred ms of paint; this gives plenty of slack without making the user
-// stare at a blank slot.
-const GRACE_MS = 1500;
+// committing to a fallback phase. Bumped from 1.5s → 3s because Chromium
+// occasionally takes 2+ seconds on slower pages, and the cost of waiting
+// is just an empty slot — much better than a manual→native flicker.
+const GRACE_MS = 3000;
 
 type Phase =
   // Still deciding what to render. NOTHING is shown in this phase, so a
@@ -29,20 +34,36 @@ type Phase =
   | 'dismissed'
   // beforeinstallprompt fired — show the one-click Install button.
   | 'native'
-  // PWA is installed elsewhere on this device (browser tab is showing the
-  // site) — show "Open" deep-link button instead of "Install".
+  // Authoritative installed-on-this-device signal (getInstalledRelatedApps
+  // or our localStorage flag from a prior appinstalled event).
   | 'installed-elsewhere'
-  // Grace period elapsed without an install event — show browser-specific
-  // instructions instead.
+  // INFERRED installed: Chromium browser, grace expired, beforeinstallprompt
+  // never fired. Chrome suppresses that event for already-installed PWAs, so
+  // this is the strongest inverse signal we have when the explicit detection
+  // APIs come up empty (which they do for users who installed before our
+  // related_applications manifest entry shipped). Surfaces Open as primary,
+  // with "show install steps anyway" as the escape hatch for false positives.
+  | 'maybe-installed'
+  // Grace period elapsed without any install signal — show browser-specific
+  // instructions.
   | 'manual';
 
-function readDismissedUntil(): number {
+function readTimestamp(key: string): number {
   try {
-    const raw = window.localStorage.getItem(DISMISS_KEY);
+    const raw = window.localStorage.getItem(key);
     return raw ? Number(raw) || 0 : 0;
   } catch {
     return 0;
   }
+}
+
+/** Chromium browsers fire beforeinstallprompt for installable sites and
+ *  suppress it for already-installed ones. That makes "no event fired
+ *  within the grace period" a strong (inverse) signal of installed state —
+ *  but only on this browser family. Firefox/Safari never fire it at all,
+ *  so the same silence means nothing there. */
+function isChromiumFamily(family: string): boolean {
+  return family === 'chromium-desktop' || family === 'chromium-android' || family === 'edge-desktop';
 }
 
 /** Floating CTA that handles the "Install as PWA" first-touch UX.
@@ -74,7 +95,7 @@ export default function InstallPrompt() {
 
     if (isInstalled()) {
       setPhase('installed');
-    } else if (readDismissedUntil() > Date.now()) {
+    } else if (readTimestamp(DISMISS_KEY) > Date.now()) {
       setPhase('dismissed');
     }
 
@@ -109,9 +130,20 @@ export default function InstallPrompt() {
       if (installed) setPhase('installed');
     });
 
-    // If we're still undecided after the grace period, commit to manual.
+    // Grace expired with no explicit signal. Route based on browser family:
+    //   Chromium where user hasn't recently said "I'm not installed":
+    //     → maybe-installed (Open is primary, manual is the escape hatch)
+    //   Everything else (Firefox, Safari, opted-out Chromium):
+    //     → manual (Install steps front and center)
     const graceTimer = window.setTimeout(() => {
-      if (phaseRef.current === 'init') setPhase('manual');
+      if (phaseRef.current !== 'init') return;
+      const userSaidNoUntil = readTimestamp(NOT_INSTALLED_KEY);
+      const userRecentlyOptedOut = userSaidNoUntil > Date.now();
+      if (isChromiumFamily(ctx.family) && !userRecentlyOptedOut) {
+        setPhase('maybe-installed');
+      } else {
+        setPhase('manual');
+      }
     }, GRACE_MS);
 
     return () => {
@@ -152,7 +184,20 @@ export default function InstallPrompt() {
     setPhase('dismissed');
   }
 
-  const isOpenPhase = phase === 'installed-elsewhere';
+  function handleUserSaysNotInstalled() {
+    // Suppress the maybe-installed inference for 24h so they're not asked
+    // again every visit. If they DO install via the manual steps, the
+    // appinstalled event sets the authoritative flag and detectInstalled-
+    // Elsewhere takes over from there.
+    try {
+      window.localStorage.setItem(NOT_INSTALLED_KEY, String(Date.now() + NOT_INSTALLED_MS));
+    } catch {
+      /* same private-mode swallow as dismiss */
+    }
+    setPhase('manual');
+  }
+
+  const isOpenPhase = phase === 'installed-elsewhere' || phase === 'maybe-installed';
   const title = isOpenPhase ? 'PWA Demo is installed' : 'Install PWA Demo';
 
   return (
@@ -192,6 +237,23 @@ export default function InstallPrompt() {
               <span className="block text-slate-500 mt-1">
                 If the app doesn't pop open, launch it from your taskbar, dock, or home
                 screen.
+              </span>
+            </p>
+          )}
+
+          {phase === 'maybe-installed' && (
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+              Looks like PWA Demo is already installed on this device — your browser
+              didn't offer the install prompt, which usually means it's installed.
+              <span className="block text-slate-500 mt-1">
+                Not installed?{' '}
+                <button
+                  type="button"
+                  onClick={handleUserSaysNotInstalled}
+                  className="text-brand-300 hover:text-brand-200 underline underline-offset-2"
+                >
+                  show install steps anyway
+                </button>
               </span>
             </p>
           )}
@@ -236,7 +298,7 @@ export default function InstallPrompt() {
             Install
           </button>
         )}
-        {phase === 'installed-elsewhere' && (
+        {(phase === 'installed-elsewhere' || phase === 'maybe-installed') && (
           <button
             type="button"
             onClick={handleOpen}

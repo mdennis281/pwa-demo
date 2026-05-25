@@ -306,6 +306,7 @@ export const CAPABILITIES: Capability[] = [
     description: 'Accelerometer events.',
     category: 'Sensors',
     check: () => supported('DeviceMotionEvent' in window),
+    demo: '/islands',
   },
   {
     id: 'orientation',
@@ -313,6 +314,7 @@ export const CAPABILITIES: Capability[] = [
     description: 'Gyroscope-derived rotation events.',
     category: 'Sensors',
     check: () => supported('DeviceOrientationEvent' in window),
+    demo: '/islands',
   },
   {
     id: 'ambient-light',

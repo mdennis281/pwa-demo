@@ -45,19 +45,23 @@ export async function unsubscribe(): Promise<boolean> {
   return sub.unsubscribe();
 }
 
-export async function sendTest(title?: string, body?: string): Promise<{ sent: number; failed: number; total: number }> {
-  // Re-register our current subscription before sending. The server keeps the
-  // sub list in-memory only, so any restart wipes it while the browser still
-  // holds a valid PushSubscription. Re-POSTing here is idempotent (keyed by
-  // endpoint) and makes the test path self-healing across server restarts.
+/** Best-effort re-register so the server's in-memory sub map doesn't get
+ *  out of sync after a process restart. Both /test and /test/delayed call
+ *  this so the test path is self-healing. */
+async function reaffirmSubscription(): Promise<void> {
   const sub = await getExistingSubscription();
-  if (sub) {
-    await fetch('/api/push/subscribe', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(sub),
-    }).catch(() => { /* best-effort; /test will still report the real error */ });
-  }
+  if (!sub) return;
+  await fetch('/api/push/subscribe', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(sub),
+  }).catch(() => {
+    /* /test or /test/delayed will surface the real error if there is one */
+  });
+}
+
+export async function sendTest(title?: string, body?: string): Promise<{ sent: number; failed: number; total: number }> {
+  await reaffirmSubscription();
   const res = await fetch('/api/push/test', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -68,6 +72,55 @@ export async function sendTest(title?: string, body?: string): Promise<{ sent: n
     throw new Error(`server returned ${res.status}${detail?.error ? ` — ${detail.error}` : ''}`);
   }
   return res.json();
+}
+
+export type ScheduledTest = {
+  ok: true;
+  scheduled: true;
+  delaySeconds: number;
+  firesAt: number;
+  total: number;
+};
+
+/** Ask the server to fire a push N seconds from now. Returns immediately so
+ *  the user can close the tab — the whole point is that web push reaches
+ *  the OS via the push provider even when no client is connected. */
+export async function scheduleDelayedTest(
+  delaySeconds: number,
+  title?: string,
+  body?: string,
+): Promise<ScheduledTest> {
+  await reaffirmSubscription();
+  const res = await fetch('/api/push/test/delayed', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ delaySeconds, title, body }),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null) as { error?: string } | null;
+    throw new Error(`server returned ${res.status}${detail?.error ? ` — ${detail.error}` : ''}`);
+  }
+  return res.json();
+}
+
+export type PushEvent =
+  | { type: 'push:received'; title: string; body: string; url: string; at: number }
+  | { type: 'push:shown'; at: number }
+  | { type: 'push:error'; message: string; at: number };
+
+/** Subscribe to SW → page debug messages. The Push UI uses this to render
+ *  an audit trail so a missing OS notification can be triaged into "didn't
+ *  reach SW" vs. "reached SW but OS suppressed it". Returns unsubscribe. */
+export function onPushEvent(fn: (e: PushEvent) => void): () => void {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
+    return () => {};
+  }
+  const handler = (ev: MessageEvent) => {
+    const data = ev.data as PushEvent | undefined;
+    if (data && typeof data.type === 'string' && data.type.startsWith('push:')) fn(data);
+  };
+  navigator.serviceWorker.addEventListener('message', handler);
+  return () => navigator.serviceWorker.removeEventListener('message', handler);
 }
 
 function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
