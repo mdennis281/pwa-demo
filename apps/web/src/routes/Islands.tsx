@@ -13,6 +13,7 @@
  * plain HTTP unless you're hitting `localhost`).
  */
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import SkyDome from '../game/SkyDome';
@@ -54,6 +55,7 @@ type SensorState = {
 type PermState = 'pending' | 'requesting' | 'granted' | 'denied' | 'unsupported';
 
 export default function Islands() {
+  const navigate = useNavigate();
   const [perm, setPerm] = useState<PermState>(() => {
     if (typeof window === 'undefined') return 'unsupported';
     if (!('DeviceMotionEvent' in window) || !('DeviceOrientationEvent' in window)) {
@@ -62,6 +64,13 @@ export default function Islands() {
     return 'pending';
   });
   const [err, setErr] = useState<string | null>(null);
+
+  function goBack() {
+    // navigate(-1) is a no-op (or sends user off-app) when /islands was the
+    // landing page. Fall back to home so the back button is always meaningful.
+    if (window.history.length > 1) navigate(-1);
+    else navigate('/');
+  }
 
   const sensor = useRef<SensorState>({
     yaw: 0,
@@ -123,7 +132,10 @@ export default function Islands() {
         s.alphaOffsetDeg = rawAlpha;
       }
       const yawDeg = ((rawAlpha - s.alphaOffsetDeg) + 540) % 360 - 180; // -180..180
-      s.yaw = -THREE.MathUtils.degToRad(yawDeg);
+      // alpha increases CCW (viewed from above) per the W3C spec; THREE Y+
+      // rotation is also CCW from above. Matching signs makes "turn phone
+      // right" pan the world right, which is what the player expects.
+      s.yaw = THREE.MathUtils.degToRad(yawDeg);
       // Clamp pitch to keep horizon roughly level; phones held in portrait
       // give beta ~90° at "normal" hold, so subtract 90 and clamp.
       const pitchDeg = THREE.MathUtils.clamp((e.beta ?? 90) - 90, -60, 60);
@@ -190,6 +202,7 @@ export default function Islands() {
         state={perm}
         err={err}
         onStart={requestPerm}
+        onBack={goBack}
       />
     );
   }
@@ -222,12 +235,19 @@ export default function Islands() {
           />
           <SensorCamera sensor={sensor} />
           <GlassBox />
+          <GlassPanel />
           <Islandscape />
           <DriftingMotes />
         </Suspense>
       </Canvas>
 
-      <HUD steps={hud.steps} heading={hud.heading} hasOrientation={hud.hasOrientation} onRecalibrate={recalibrate} />
+      <HUD
+        steps={hud.steps}
+        heading={hud.heading}
+        hasOrientation={hud.hasOrientation}
+        onRecalibrate={recalibrate}
+        onBack={goBack}
+      />
     </div>
   );
 }
@@ -238,14 +258,26 @@ function PermissionGate({
   state,
   err,
   onStart,
+  onBack,
 }: {
   state: PermState;
   err: string | null;
   onStart: () => void;
+  onBack: () => void;
 }) {
   const isMobileLike = typeof window !== 'undefined' && 'ontouchstart' in window;
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-slate-900 via-purple-950 to-slate-900 px-6">
+      {/* Back button — also offset by the safe-area inset so it clears the
+          iOS status bar in standalone PWA mode. */}
+      <button
+        type="button"
+        onClick={onBack}
+        className="absolute left-4 z-10 bg-slate-950/70 backdrop-blur border border-slate-700 hover:border-slate-500 rounded-lg px-3 py-1.5 text-slate-200 text-xs"
+        style={{ top: 'calc(env(safe-area-inset-top, 0px) + 1rem)' }}
+      >
+        ← back
+      </button>
       <div className="max-w-md w-full bg-slate-950/70 backdrop-blur border border-slate-700 rounded-xl p-6 space-y-4">
         <h1 className="text-2xl font-semibold text-white">Floating Islands</h1>
         <p className="text-slate-400 text-sm">
@@ -351,6 +383,63 @@ function GlassBox() {
       <mesh position={[0, -BOX_HALF + 0.001, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <planeGeometry args={[BOX_SIZE, BOX_SIZE]} />
         <meshStandardMaterial color="#2a1f3a" roughness={0.5} />
+      </mesh>
+    </group>
+  );
+}
+
+/** Standing stained-glass panel just outside the box's front (-Z) face. The
+ *  box only spans ~3m so islands at ~20-70m feel far. This panel sits at
+ *  ~2.7m and is the only object near enough for stepping to produce obvious
+ *  parallax — making the PDR translation legible to the player. */
+function GlassPanel() {
+  const jewelRef = useRef<THREE.MeshStandardMaterial>(null);
+  const panelGeom = useMemo(() => new THREE.BoxGeometry(1.8, 2.4, 0.05), []);
+  const frameEdges = useMemo(() => new THREE.EdgesGeometry(panelGeom), [panelGeom]);
+
+  useFrame(() => {
+    if (!jewelRef.current) return;
+    jewelRef.current.emissiveIntensity = 1.6 + Math.sin(performance.now() / 700) * 0.5;
+  });
+
+  return (
+    <group position={[0, EYE_HEIGHT, -(BOX_HALF + 1.5)]}>
+      {/* tinted glass backing — translucent enough that islands stay visible behind */}
+      <mesh geometry={panelGeom}>
+        <meshPhysicalMaterial
+          color="#c7a8e0"
+          transparent
+          opacity={0.18}
+          roughness={0.08}
+          transmission={0.75}
+          thickness={0.05}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+      {/* brass frame */}
+      <lineSegments geometry={frameEdges}>
+        <lineBasicMaterial color="#f7c98a" />
+      </lineSegments>
+      {/* concentric gold rings — each pair of (radius, tube) was picked so they
+          all read clearly at the spawn distance (~2.7m) and grow noticeably as
+          the player steps forward (~1.5m closer at the wall clamp). */}
+      {[0.35, 0.6, 0.85, 1.05].map((r) => (
+        <mesh key={r} position={[0, 0, 0.03]}>
+          <torusGeometry args={[r, 0.018, 8, 56]} />
+          <meshBasicMaterial color="#f7c98a" />
+        </mesh>
+      ))}
+      {/* four small jewels at the cardinal positions */}
+      {[[0, 1.05, 0.04], [0, -1.05, 0.04], [-0.85, 0, 0.04], [0.85, 0, 0.04]].map((p, i) => (
+        <mesh key={i} position={p as [number, number, number]}>
+          <sphereGeometry args={[0.05, 12, 12]} />
+          <meshStandardMaterial color="#f7c98a" emissive="#ffd385" emissiveIntensity={1.4} />
+        </mesh>
+      ))}
+      {/* centerpiece — pulses softly so even at rest there's a focal beat */}
+      <mesh position={[0, 0, 0.06]}>
+        <sphereGeometry args={[0.09, 16, 16]} />
+        <meshStandardMaterial ref={jewelRef} color="#fff1c2" emissive="#ffe5b0" emissiveIntensity={1.6} />
       </mesh>
     </group>
   );
@@ -529,31 +618,57 @@ function HUD({
   heading,
   hasOrientation,
   onRecalibrate,
+  onBack,
 }: {
   steps: number;
   heading: number;
   hasOrientation: boolean;
   onRecalibrate: () => void;
+  onBack: () => void;
 }) {
+  // env(safe-area-inset-*) is iOS-PWA-aware — when the app is installed and
+  // running in standalone mode, the top inset accounts for the notch/status
+  // bar (where the clock + battery live). Falls back to 0 in browser tabs.
+  const topInset = 'calc(env(safe-area-inset-top, 0px) + 1rem)';
+  const bottomInset = 'calc(env(safe-area-inset-bottom, 0px) + 1rem)';
   return (
     <div className="absolute inset-0 pointer-events-none z-10 text-white font-mono text-xs">
-      <div className="absolute top-4 left-4 pointer-events-auto bg-slate-950/70 backdrop-blur border border-slate-800 rounded-lg px-3 py-2">
-        <div className="text-slate-400 text-[10px] uppercase tracking-wider">sensors</div>
-        <div className="tabular-nums">steps: <span className="text-amber-300">{steps}</span></div>
-        <div className="tabular-nums">heading: <span className="text-amber-300">{heading}°</span></div>
-        {!hasOrientation && (
-          <div className="text-rose-300 text-[10px] mt-1">no orientation events received yet</div>
-        )}
+      {/* Top-left stack: back button + sensors readout */}
+      <div
+        className="absolute left-4 pointer-events-auto flex flex-col gap-2"
+        style={{ top: topInset }}
+      >
+        <button
+          type="button"
+          onClick={onBack}
+          className="self-start bg-slate-950/70 backdrop-blur border border-slate-800 hover:border-slate-500 rounded-lg px-3 py-1.5 text-slate-200"
+        >
+          ← back
+        </button>
+        <div className="bg-slate-950/70 backdrop-blur border border-slate-800 rounded-lg px-3 py-2">
+          <div className="text-slate-400 text-[10px] uppercase tracking-wider">sensors</div>
+          <div className="tabular-nums">steps: <span className="text-amber-300">{steps}</span></div>
+          <div className="tabular-nums">heading: <span className="text-amber-300">{heading}°</span></div>
+          {!hasOrientation && (
+            <div className="text-rose-300 text-[10px] mt-1">no orientation events received yet</div>
+          )}
+        </div>
       </div>
+
       <button
         type="button"
         onClick={onRecalibrate}
-        className="absolute top-4 right-4 pointer-events-auto bg-slate-950/70 backdrop-blur border border-slate-800 hover:border-amber-500/40 rounded-lg px-3 py-2 text-amber-200"
+        className="absolute right-4 pointer-events-auto bg-slate-950/70 backdrop-blur border border-slate-800 hover:border-amber-500/40 rounded-lg px-3 py-2 text-amber-200"
+        style={{ top: topInset }}
         title="Set current facing direction as the world's 'forward'"
       >
         recalibrate ↻
       </button>
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-[10px] text-slate-300 bg-slate-950/60 backdrop-blur border border-slate-800 rounded-lg px-3 py-1.5 text-center">
+
+      <div
+        className="absolute left-1/2 -translate-x-1/2 text-[10px] text-slate-300 bg-slate-950/60 backdrop-blur border border-slate-800 rounded-lg px-3 py-1.5 text-center"
+        style={{ bottom: bottomInset }}
+      >
         turn your phone to look around · walk a step or two to lean toward a wall
       </div>
     </div>

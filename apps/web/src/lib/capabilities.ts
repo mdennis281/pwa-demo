@@ -85,6 +85,7 @@ export const CAPABILITIES: Capability[] = [
     description: 'Customize the desktop titlebar area for installed PWAs.',
     category: 'Install & PWA',
     check: () => supported('windowControlsOverlay' in navigator),
+    demo: '/wco',
   },
   {
     id: 'launch-queue',

@@ -227,7 +227,11 @@ function Highlighted({ text, q }: { text: string; q: string }) {
   );
 }
 
-/** Side-effect hook: scroll a hash-targeted element into view + highlight it briefly. */
+/** Side-effect hook: scroll a hash-targeted element into view + pulse it once.
+ *  The pulse is a Web Animation (not a class toggle) so the browser tears it
+ *  down automatically — rapid navigations (webgl → webgl2) can't leave the
+ *  previous target stuck in the highlighted state the way classList.add /
+ *  setTimeout-cleanup could when the timer was cancelled mid-flight. */
 export function useHashScrollHighlight() {
   const location = useLocation();
   useEffect(() => {
@@ -236,10 +240,18 @@ export function useHashScrollHighlight() {
     const el = document.getElementById(id);
     if (!el) return;
     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    el.classList.add('ring-2', 'ring-brand-400', 'ring-offset-2', 'ring-offset-slate-950');
-    const t = window.setTimeout(() => {
-      el.classList.remove('ring-2', 'ring-brand-400', 'ring-offset-2', 'ring-offset-slate-950');
-    }, 1800);
-    return () => window.clearTimeout(t);
+    // brand-400 is #38bdf8. A growing-then-shrinking box-shadow ring reads as
+    // a single pulse without permanently altering the element's layout box.
+    const anim = el.animate(
+      [
+        { boxShadow: '0 0 0 0 rgba(56, 189, 248, 0)' },
+        { boxShadow: '0 0 0 6px rgba(56, 189, 248, 0.55)', offset: 0.35 },
+        { boxShadow: '0 0 0 0 rgba(56, 189, 248, 0)' },
+      ],
+      { duration: 900, easing: 'cubic-bezier(0.22, 0.61, 0.36, 1)' },
+    );
+    // If the user navigates again before the pulse finishes, cancel this one
+    // so it doesn't keep painting on the now-stale target.
+    return () => anim.cancel();
   }, [location.pathname, location.hash]);
 }

@@ -47,13 +47,6 @@ function RelatedAppsDemo() {
   );
 }
 
-function WCODemo() {
-  const wco = (navigator as Navigator & { windowControlsOverlay?: { visible: boolean; getTitlebarAreaRect: () => DOMRect } }).windowControlsOverlay;
-  if (!wco) return <Out tone="err">unsupported</Out>;
-  const r = wco.getTitlebarAreaRect?.();
-  return <Out>visible: {String(wco.visible)} · titlebar: {r ? `${r.width.toFixed(0)}×${r.height.toFixed(0)}` : '—'}</Out>;
-}
-
 function LaunchQueueDemo() {
   const lq = (window as Window & { launchQueue?: { setConsumer: (cb: (p: unknown) => void) => void } }).launchQueue;
   if (!lq) return <Out tone="err">unsupported</Out>;
@@ -971,7 +964,6 @@ export const INLINE_DEMOS: Record<string, () => React.JSX.Element> = {
   // Install & PWA
   'service-worker': ServiceWorkerDemo,
   'related-apps': RelatedAppsDemo,
-  'wco': WCODemo,
   'launch-queue': LaunchQueueDemo,
   // Notifications
   'notifications': NotificationsDemo,

@@ -102,6 +102,30 @@ export default function Push() {
     }
   }
 
+  /** Show a notification directly from the page via the SW, bypassing the
+   *  entire push pipeline (FCM/Mozilla/Apple, server, sub validity, VAPID).
+   *  If THIS doesn't surface an OS popup, the issue is 100% OS-side
+   *  (Focus Assist, per-app notification toggle, quiet-messaging on the
+   *  site) — no amount of server or service-worker code can fix it. */
+  async function handleLocalNotification() {
+    setBusy(true);
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      await reg.showNotification('Local test', {
+        body: 'If you see this, the OS notification path is working. Web Push goes through the same path.',
+        icon: '/pwa-192x192.png',
+        badge: '/pwa-64x64.png',
+        tag: `local-${Date.now()}`,
+        requireInteraction: true,
+      } as NotificationOptions);
+      append('★ local showNotification returned — check OS popup AND Notification Center (Win+N)');
+    } catch (e) {
+      append(`local notification failed: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleScheduleDelayed() {
     setBusy(true);
     try {
@@ -164,6 +188,13 @@ export default function Push() {
         </Btn>
         <Btn onClick={handleUnsubscribe} disabled={busy || !sub} variant="ghost">
           Unsubscribe
+        </Btn>
+        <Btn
+          onClick={handleLocalNotification}
+          disabled={busy || permission !== 'granted'}
+          variant="ghost"
+        >
+          Local-only test (bypass push)
         </Btn>
       </div>
 
