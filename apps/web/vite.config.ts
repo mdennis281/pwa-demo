@@ -43,14 +43,27 @@ export default defineConfig({
           { src: 'maskable-icon-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
         shortcuts: [
-          { name: 'Status',     short_name: 'Status', url: '/status',   description: 'Live connected clients' },
-          { name: 'Web Worker', short_name: 'Worker', url: '/worker',   description: 'Web Worker demo' },
-          { name: 'Push',       short_name: 'Push',   url: '/push',     description: 'Web Push demo' },
-          { name: 'Manifest',   short_name: 'Manifest', url: '/manifest', description: 'PWA install playground' },
+          // Chrome wants a 96x96 icon per shortcut for the OS jumplist; we
+          // point at the 192x192 we already generate and let the OS scale
+          // down. Otherwise Chrome warns "Shortcut #N should include a 96×96
+          // pixel icon" and refuses to surface the shortcut.
+          { name: 'Status',     short_name: 'Status',   url: '/status',   description: 'Live connected clients',
+            icons: [{ src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' }] },
+          { name: 'Web Worker', short_name: 'Worker',   url: '/worker',   description: 'Web Worker demo',
+            icons: [{ src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' }] },
+          { name: 'Push',       short_name: 'Push',     url: '/push',     description: 'Web Push demo',
+            icons: [{ src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' }] },
+          { name: 'Manifest',   short_name: 'Manifest', url: '/manifest', description: 'PWA install playground',
+            icons: [{ src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' }] },
         ],
         protocol_handlers: [{ protocol: 'web+pwademo', url: '/?proto=%s' }],
         launch_handler: { client_mode: ['navigate-existing', 'auto'] },
         edge_side_panel: { preferred_width: 480 },
+        // Needed for navigator.getInstalledRelatedApps() to recognize THIS PWA
+        // when the user views the site in a regular browser tab. Same-origin
+        // relative URL works across dev (localhost) and prod (LAN host).
+        prefer_related_applications: false,
+        related_applications: [{ platform: 'webapp', url: '/manifest.webmanifest' }],
       },
     }),
   ],

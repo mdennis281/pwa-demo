@@ -102,6 +102,14 @@ export type ServerDebugStats = {
   txEvents: number;
   rxBytesEst: number;
   txBytesEst: number;
+  /** Total bytes broadcast in the most recent tick across all lobbies. The
+   *  first signal a 50-player load test stresses — watch this climb. */
+  lastTickBytes: number;
+  /** node:perf_hooks event-loop delay percentiles in ms. Climbs above ~5ms
+   *  means the loop is getting starved by tick fanout. */
+  loopLagP50Ms: number;
+  loopLagP99Ms: number;
+  rssMb: number;
 };
 
 /** The single hardcoded "Official Server" lobby. Always-on, never dissolves,
@@ -116,6 +124,15 @@ export type TowerHighScore = {
   achievedAt: number; // unix ms
 };
 
+/** Server tells the client what privileges (if any) the handshake earned.
+ *  Emitted once on connect; client uses it to gate admin UI affordances.
+ *  The server is the source of truth — a client claiming `isAdmin` without
+ *  a valid ADMIN_TOKEN gets `isAdmin: false` here. */
+export type AuthStatus = {
+  isAdmin: boolean;
+  isBot: boolean;
+};
+
 export interface ServerToClientEvents {
   'clients:update': (clients: ClientInfo[]) => void;
   'pong:reply': (sentAt: number) => void;
@@ -126,6 +143,8 @@ export interface ServerToClientEvents {
   /** Pushed to lobby-browser room whenever the official-server leaderboard
    *  changes (player leaves, new high score posted). */
   'tower:leaderboard': (top: TowerHighScore[]) => void;
+  /** Emitted once per connection after the handshake middleware runs. */
+  'auth:status': (status: AuthStatus) => void;
 }
 
 export interface ClientToServerEvents {

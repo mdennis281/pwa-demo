@@ -31,14 +31,29 @@ build gets retried on the next tick instead of being silently swallowed.
 
 ## Target config
 
-`deploy/config.py` reads host/user/password from env vars and falls back
-to the LAN demo box. Override via:
+`deploy/config.py` reads host/user/password from env. The file is the
+**only** source — no secrets are checked in. Two ways to set them:
+
+**Option A — `.env` at repo root** (preferred, needs `pip install python-dotenv`):
+
+```
+PWADEMO_HOST=pwa-demo.lan
+PWADEMO_USER=dipduo
+PWADEMO_PASSWORD=...
+```
+
+`.env` is gitignored. See `.env.example` for the full list.
+
+**Option B — shell env vars:**
 
 ```
 $env:PWADEMO_HOST = "..."   # PowerShell
 $env:PWADEMO_USER = "..."
 $env:PWADEMO_PASSWORD = "..."
 ```
+
+If `PWADEMO_PASSWORD` is unset, the SSH client falls back to your agent /
+key-based auth.
 
 ## Commands
 

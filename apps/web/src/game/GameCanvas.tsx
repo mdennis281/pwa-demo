@@ -15,8 +15,8 @@ import TouchControls from './controls/TouchControls';
 import { useKeyboard } from './controls/useKeyboard';
 import { useMouseLook } from './controls/useMouseLook';
 import { input } from './controls/input';
-import type { GameSnapshot, LocalInput, LobbyState, Role } from '@pwa-demo/shared';
-import { getSocket } from '../lib/socket';
+import type { AuthStatus, GameSnapshot, LocalInput, LobbyState, Role } from '@pwa-demo/shared';
+import { getSocket, hasAdminToken, setAdminToken } from '../lib/socket';
 
 /** Kick off shader compilation for every material in the scene up-front.
  *  Without this, Three.js compiles each material lazily on its first draw
@@ -65,28 +65,50 @@ export default function GameCanvas({
   const [cheats, setCheats] = useState<Cheats>(DEFAULT_CHEATS);
   const [cheatsOpen, setCheatsOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
+  const [debugOpen, setDebugOpen] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [myPing, setMyPing] = useState<number | null>(null);
   const [snapshotCount, setSnapshotCount] = useState(0);
   const myStateRef = useRef({ y: spawn.y, maxY: spawn.y });
 
   const isHost = lobby.hostId === selfId;
+  const canAdmin = isHost || isAdmin;
   const paused = lobby.paused ?? false;
 
-  // Ctrl+C toggles the cheat menu; Ctrl+A toggles admin menu (host only)
+  // Server tells us what privileges the handshake earned — single source of
+  // truth, beats trusting localStorage alone.
+  useEffect(() => {
+    const s = getSocket();
+    const onAuth = (status: AuthStatus) => setIsAdmin(status.isAdmin);
+    s.on('auth:status', onAuth);
+    return () => { s.off('auth:status', onAuth); };
+  }, []);
+
+  // Ctrl+C toggles the cheat menu; Ctrl+A toggles admin menu (host or admin-token holder)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey && (e.code === 'KeyC' || e.key === 'c' || e.key === 'C')) {
         e.preventDefault();
         setCheatsOpen((v) => !v);
       }
-      if (e.ctrlKey && (e.code === 'KeyA' || e.key === 'a' || e.key === 'A') && isHost) {
+      if (e.ctrlKey && (e.code === 'KeyA' || e.key === 'a' || e.key === 'A') && canAdmin) {
         e.preventDefault();
         setAdminOpen((v) => !v);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isHost]);
+  }, [canAdmin]);
+
+  function handleAdminLogin() {
+    const existing = hasAdminToken();
+    const next = window.prompt(
+      existing ? 'Admin token (clear to log out):' : 'Admin token:',
+      '',
+    );
+    if (next === null) return; // user cancelled
+    setAdminToken(next.trim() || null); // empty string clears + reloads
+  }
 
   // Periodic ping probe so the server tracks each player's ping
   useEffect(() => {
@@ -227,6 +249,10 @@ export default function GameCanvas({
         pointerLocked={locked}
         jumpsUsed={jumpsUsed}
         isPlayer={role === 'player'}
+        debugOpen={debugOpen}
+        onToggleDebug={() => setDebugOpen((v) => !v)}
+        isAdmin={isAdmin}
+        onAdminLogin={handleAdminLogin}
       />
 
       <TouchControls active={isTouch} />
@@ -247,6 +273,8 @@ export default function GameCanvas({
       />
 
       <DebugPanel
+        open={debugOpen}
+        onClose={() => setDebugOpen(false)}
         players={snapshot?.players ?? []}
         selfId={selfId}
         myPing={myPing}
@@ -271,7 +299,7 @@ export default function GameCanvas({
       )}
 
       <div className="absolute top-4 right-1/2 translate-x-1/2 z-30 flex gap-2">
-        {isHost && (
+        {canAdmin && (
           <button
             onClick={() => setAdminOpen((v) => !v)}
             title="Admin panel (Ctrl+A)"

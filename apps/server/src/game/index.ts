@@ -66,6 +66,7 @@ function broadcastLobbyState(
 function startTickLoop(io: Server<ClientToServerEvents, ServerToClientEvents>): () => void {
   const interval = setInterval(() => {
     const now = Date.now();
+    let tickBytes = 0;
     for (const lobby of allLobbies()) {
       if (lobby.paused) continue; // skip snapshot when paused — clients freeze
       const players: PlayerSnapshot[] = [...lobby.players.values()].map((p) => ({
@@ -87,7 +88,12 @@ function startTickLoop(io: Server<ClientToServerEvents, ServerToClientEvents>): 
       io.to(lobbyRoom(lobby.id)).emit('game:snapshot', snap);
       serverMetrics.txEvents++;
       serverMetrics.txBytesEst += snapStr.length;
+      // Per-recipient fanout cost is what hurts at 50 players — one emit
+      // becomes N socket writes. Multiply payload by room size for a
+      // realistic "bytes-on-the-wire this tick" estimate.
+      tickBytes += snapStr.length * lobby.players.size;
     }
+    serverMetrics.lastTickBytes = tickBytes;
   }, Math.floor(1000 / TICK_HZ));
   return () => clearInterval(interval);
 }
@@ -106,7 +112,14 @@ async function handleLeave(
 ): Promise<ReturnType<typeof leaveLobby>> {
   const r = leaveLobby(socketId);
   if (!r) return null;
-  if (r.lobbyId === OFFICIAL_LOBBY_ID && r.player && r.player.maxHeight > 0) {
+  // Bots run circles forever and would otherwise top the leaderboard with
+  // junk maxHeight values — skip the write entirely.
+  if (
+    r.lobbyId === OFFICIAL_LOBBY_ID &&
+    r.player &&
+    !r.player.isBot &&
+    r.player.maxHeight > 0
+  ) {
     await recordTowerHighScore({
       displayName: r.player.displayName,
       character: r.player.character,
@@ -170,6 +183,7 @@ export function attachGame(
       displayName: opts.displayName,
       character: opts.character,
       role: opts.role,
+      isBot: socket.data.isBot === true,
     });
     socket.join(lobbyRoom(lobby.id));
     cb({ ok: true, lobby: lobbyToState(lobby) });
@@ -189,6 +203,7 @@ export function attachGame(
       lobbyId: opts.lobbyId,
       displayName: opts.displayName,
       character: opts.character,
+      isBot: socket.data.isBot === true,
     });
     if (!result.ok) {
       cb({ ok: false, error: result.error });
@@ -215,6 +230,7 @@ export function attachGame(
       lobbyId: OFFICIAL_LOBBY_ID,
       displayName: opts.displayName,
       character: opts.character,
+      isBot: socket.data.isBot === true,
     });
     if (!result.ok) {
       cb({ ok: false, error: result.error });
@@ -245,8 +261,9 @@ export function attachGame(
   });
 
   socket.on('admin:action', (action, cb) => {
+    const isAdmin = socket.data.isAdmin === true;
     if (action.type === 'kick') {
-      const result = kickPlayer(socket.id, action.targetId);
+      const result = kickPlayer(socket.id, action.targetId, isAdmin);
       if (!result.ok) { cb({ ok: false, error: result.error }); return; }
       // Force the kicked socket out of the lobby room and notify them
       io.to(action.targetId).socketsLeave(lobbyRoom(result.lobbyId));
@@ -255,12 +272,12 @@ export function attachGame(
       broadcastBrowser(io);
       cb({ ok: true });
     } else if (action.type === 'pause') {
-      const result = setPaused(socket.id, action.paused);
+      const result = setPaused(socket.id, action.paused, isAdmin);
       if (!result.ok) { cb({ ok: false, error: result.error }); return; }
       broadcastLobbyState(io, result.lobby.id);
       cb({ ok: true });
     } else if (action.type === 'config') {
-      const result = updateLobbyConfig(socket.id, action);
+      const result = updateLobbyConfig(socket.id, action, isAdmin);
       if (!result.ok) { cb({ ok: false, error: result.error }); return; }
       broadcastLobbyState(io, result.lobby.id);
       broadcastBrowser(io);

@@ -51,6 +51,15 @@ class Remote:
     def connect(self) -> None:
         if self._client:
             return
+        # Fail fast with a useful pointer when no password is configured —
+        # paramiko's "No authentication methods available" otherwise reads
+        # like a server-side problem and sends people on a goose chase.
+        if not self.target.password:
+            raise SystemExit(
+                f"deploy: no password configured for {self.target.user}@{self.target.host}.\n"
+                "  Add PWADEMO_PASSWORD=... to the repo-root .env (see .env.example),\n"
+                "  or export it for this shell: $env:PWADEMO_PASSWORD = '...'"
+            )
         c = paramiko.SSHClient()
         c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         c.connect(

@@ -18,6 +18,14 @@ const schema = z.object({
     (s) => s.startsWith('mailto:') || s.startsWith('https://'),
     'VAPID_SUBJECT must start with mailto: or https://',
   ),
+  /** Empty = bot connections rejected at the handshake. Set to a non-empty
+   *  secret to enable apps/bots/ load-test connections. */
+  LOADTEST_TOKEN: z.string().default(''),
+  /** Empty = admin elevation disabled. Set to a non-empty secret to allow
+   *  a browser client to claim isAdmin=true at the handshake and bypass
+   *  per-lobby host checks (kick/pause/config). Mainly used to admin the
+   *  always-on Official Server, which has no real human host. */
+  ADMIN_TOKEN: z.string().default(''),
 });
 
 export const env = schema.parse(process.env);

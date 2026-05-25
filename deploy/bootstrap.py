@@ -114,12 +114,17 @@ def _upload_env(r: Remote, app_root: str) -> None:
         "HOST": "0.0.0.0",
         "WEB_ORIGIN": f"http://{TARGET.host}",
     }
+    # Keys that belong to the dev machine (SSH creds, etc.) and must never
+    # land on the box itself — the box doesn't need its own deploy password.
+    skip_prefixes = ("PWADEMO_",)
     lines = text.splitlines()
     seen = set()
     out_lines: list[str] = []
     for line in lines:
         m = line.split("=", 1)
         key = m[0].strip()
+        if any(key.startswith(p) for p in skip_prefixes):
+            continue
         if key in overrides:
             out_lines.append(f"{key}={overrides[key]}")
             seen.add(key)

@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import { CAPABILITIES, CATEGORIES, slugifyCategory, type Capability, type Category, type Support } from '../lib/capabilities';
 import { INLINE_DEMOS } from '../lib/demos';
 import { useCapabilityStatuses } from '../lib/useCapabilityStatuses';
+import InstallPrompt from '../components/InstallPrompt';
 
 /** Standalone routes that aren't tied to a single capability check.
  *  Surfaced as the featured demo at the top of their category. */
@@ -35,6 +36,8 @@ export default function Home() {
 
       <Summary totals={totals} />
 
+      <InstallPrompt />
+
       {STANDALONE_DEMOS.length > 0 && (
         <div className="mt-8">
           <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">Featured demos</div>
@@ -63,9 +66,6 @@ export default function Home() {
         ))}
       </div>
 
-      <div className="mt-12 text-xs text-slate-500">
-        Tip: install the app from your browser (Chrome: address bar install icon) to unlock OS integration.
-      </div>
     </div>
   );
 }

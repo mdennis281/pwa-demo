@@ -13,17 +13,20 @@ type ClientMetrics = {
 };
 
 export default function DebugPanel({
+  open,
+  onClose,
   players,
   selfId,
   myPing,
   snapshotCount,
 }: {
+  open: boolean;
+  onClose: () => void;
   players: PlayerSnapshot[];
   selfId: string;
   myPing: number | null;
   snapshotCount: number;
 }) {
-  const [open, setOpen] = useState(false);
   const [serverStats, setServerStats] = useState<ServerDebugStats | null>(null);
   const [clientMetrics, setClientMetrics] = useState<ClientMetrics>({
     rxEvents: 0,
@@ -72,29 +75,15 @@ export default function DebugPanel({
     return () => clearInterval(id);
   }, [snapshotCount, myPing]);
 
-  return (
-    <>
-      {/* Bug button — anchored to the upper-right of the altitude counter
-          (altitude card sits at top-4 left-4 and is ~140px wide). */}
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        title="Debug panel"
-        className={`absolute top-4 left-44 z-40 w-8 h-8 rounded-lg flex items-center justify-center text-base transition ${
-          open
-            ? 'bg-slate-700/90 text-white border border-slate-500/60'
-            : 'bg-slate-900/60 text-slate-400 hover:text-slate-200 border border-slate-700/40'
-        }`}
-      >
-        🐛
-      </button>
+  if (!open) return null;
 
-      {open && (
-        <div className="absolute top-16 left-44 z-40 bg-slate-950/95 backdrop-blur border border-slate-700 rounded-xl shadow-2xl w-72 p-4 space-y-4 text-xs font-mono">
-          <div className="flex items-center justify-between">
-            <span className="text-slate-400 text-[10px] uppercase tracking-wider">debug</span>
-            <button onClick={() => setOpen(false)} className="text-slate-600 hover:text-slate-300 leading-none">×</button>
-          </div>
+  return (
+    /* Panel docks just below the altitude card's bottom edge. */
+    <div className="absolute top-32 left-4 z-40 bg-slate-950/95 backdrop-blur border border-slate-700 rounded-xl shadow-2xl w-72 p-4 space-y-4 text-xs font-mono pointer-events-auto">
+      <div className="flex items-center justify-between">
+        <span className="text-slate-400 text-[10px] uppercase tracking-wider">debug</span>
+        <button onClick={onClose} className="text-slate-600 hover:text-slate-300 leading-none">×</button>
+      </div>
 
           {/* client metrics */}
           <section className="space-y-1">
@@ -120,6 +109,10 @@ export default function DebugPanel({
               <Row label="rx bytes (est)" value={fmtBytes(serverStats.rxBytesEst)} />
               <Row label="tx events" value={fmtN(serverStats.txEvents)} />
               <Row label="tx bytes (est)" value={fmtBytes(serverStats.txBytesEst)} />
+              <Row label="last tick bytes" value={fmtBytes(serverStats.lastTickBytes)} highlight={tickBytesColor(serverStats.lastTickBytes)} />
+              <Row label="loop lag p50" value={`${serverStats.loopLagP50Ms.toFixed(1)}ms`} highlight={lagColor(serverStats.loopLagP50Ms)} />
+              <Row label="loop lag p99" value={`${serverStats.loopLagP99Ms.toFixed(1)}ms`} highlight={lagColor(serverStats.loopLagP99Ms)} />
+              <Row label="rss" value={`${serverStats.rssMb.toFixed(0)} MB`} />
             </section>
           )}
 
@@ -139,9 +132,7 @@ export default function DebugPanel({
               ))}
             </section>
           )}
-        </div>
-      )}
-    </>
+    </div>
   );
 }
 
@@ -158,6 +149,18 @@ function pingColor(ping: number | null | undefined): string {
   if (ping == null) return 'text-slate-500';
   if (ping < 80) return 'text-emerald-400';
   if (ping < 150) return 'text-amber-400';
+  return 'text-rose-400';
+}
+
+function lagColor(ms: number): string {
+  if (ms < 5) return 'text-emerald-400';
+  if (ms < 20) return 'text-amber-400';
+  return 'text-rose-400';
+}
+
+function tickBytesColor(b: number): string {
+  if (b < 100_000) return 'text-emerald-400';
+  if (b < 500_000) return 'text-amber-400';
   return 'text-rose-400';
 }
 

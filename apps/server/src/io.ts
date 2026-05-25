@@ -1,3 +1,4 @@
+import { monitorEventLoopDelay } from 'node:perf_hooks';
 import type { Server, Socket } from 'socket.io';
 import type {
   ClientInfo,
@@ -8,10 +9,18 @@ import type {
 import { attachGame } from './game/index.js';
 import { allLobbies } from './game/lobby.js';
 import { serverMetrics } from './metrics.js';
+import { env } from './env.js';
 
 const clients = new Map<string, ClientInfo>();
 const STATUS_ROOM = 'status';
 const DEBUG_ROOM = 'debug';
+
+// Continuously samples how long the event loop is delayed past its scheduled
+// tick. p50 climbing toward the tick period (50ms at 20Hz) means the loop is
+// saturated; p99 is the spike indicator. Reset each broadcast so values are
+// per-second, not lifetime.
+const loopLag = monitorEventLoopDelay({ resolution: 10 });
+loopLag.enable();
 
 function snapshot(): ClientInfo[] {
   return Array.from(clients.values()).sort((a, b) => a.connectedAt - b.connectedAt);
@@ -22,6 +31,44 @@ export function getPing(socketId: string): number | null {
 }
 
 export function attachSocket(io: Server<ClientToServerEvents, ServerToClientEvents>) {
+  // Handshake gate for elevated connections — the headless load-test fleet
+  // and the human server admin. Both carry an auth blob:
+  //   io(url, { auth: { isBot: true,  token: LOADTEST_TOKEN } })
+  //   io(url, { auth: { isAdmin: true, token: ADMIN_TOKEN    } })
+  // Wrong/missing token + a privilege claim is a hard reject (never falls
+  // through to a normal anonymous connection). A normal client passes no
+  // auth blob and connects unchanged.
+  io.use((socket, next) => {
+    const auth = (socket.handshake.auth ?? {}) as {
+      isBot?: boolean;
+      isAdmin?: boolean;
+      token?: string;
+    };
+    if (auth.isBot) {
+      if (!env.LOADTEST_TOKEN) {
+        next(new Error('bot connections disabled (LOADTEST_TOKEN unset)'));
+        return;
+      }
+      if (auth.token !== env.LOADTEST_TOKEN) {
+        next(new Error('invalid bot token'));
+        return;
+      }
+      socket.data.isBot = true;
+    }
+    if (auth.isAdmin) {
+      if (!env.ADMIN_TOKEN) {
+        next(new Error('admin elevation disabled (ADMIN_TOKEN unset)'));
+        return;
+      }
+      if (auth.token !== env.ADMIN_TOKEN) {
+        next(new Error('invalid admin token'));
+        return;
+      }
+      socket.data.isAdmin = true;
+    }
+    next();
+  });
+
   // Periodic debug stats broadcast
   setInterval(() => {
     const lobbies = allLobbies();
@@ -34,7 +81,13 @@ export function attachSocket(io: Server<ClientToServerEvents, ServerToClientEven
       txEvents: serverMetrics.txEvents,
       rxBytesEst: serverMetrics.rxBytesEst,
       txBytesEst: serverMetrics.txBytesEst,
+      lastTickBytes: serverMetrics.lastTickBytes,
+      // perf_hooks reports in ns — convert to ms for the UI.
+      loopLagP50Ms: Number((loopLag.percentile(50) / 1e6).toFixed(2)),
+      loopLagP99Ms: Number((loopLag.percentile(99) / 1e6).toFixed(2)),
+      rssMb: Number((process.memoryUsage.rss() / 1024 / 1024).toFixed(1)),
     };
+    loopLag.reset();
     io.to(DEBUG_ROOM).emit('debug:server-stats', stats);
   }, 1000);
 
@@ -47,6 +100,13 @@ export function attachSocket(io: Server<ClientToServerEvents, ServerToClientEven
     };
     clients.set(socket.id, info);
     io.to(STATUS_ROOM).emit('clients:update', snapshot());
+
+    // Tell the client what the handshake earned them so the UI can render
+    // admin affordances without trusting localStorage alone.
+    socket.emit('auth:status', {
+      isAdmin: socket.data.isAdmin === true,
+      isBot: socket.data.isBot === true,
+    });
 
     // Track incoming event metrics
     socket.use(([_event, ...args], next) => {

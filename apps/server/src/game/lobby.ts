@@ -33,6 +33,9 @@ export type ServerPlayer = {
   /** When the player joined the lobby. Used to compute session length for
    *  persisted high scores on the Official Server. */
   joinedAt: number;
+  /** True when the socket presented a valid LOADTEST_TOKEN. Bypasses the
+   *  per-lobby maxPlayers cap and is excluded from leaderboard persistence. */
+  isBot: boolean;
 };
 
 export type Lobby = {
@@ -82,6 +85,7 @@ export function createLobby(opts: {
   displayName: string;
   character: number;
   role: Role;
+  isBot?: boolean;
 }): Lobby {
   const id = randomBytes(4).toString('hex');
   const hostName = sanitize(opts.displayName, MAX_NAME, 'Host');
@@ -108,6 +112,7 @@ export function createLobby(opts: {
     state: 'idle',
     lastInputAt: Date.now(),
     joinedAt: Date.now(),
+    isBot: !!opts.isBot,
   });
   lobbies.set(id, lobby);
   playerLobby.set(opts.socketId, id);
@@ -119,10 +124,15 @@ export function joinLobby(opts: {
   lobbyId: string;
   displayName: string;
   character: number;
+  isBot?: boolean;
 }): { ok: true; lobby: Lobby } | { ok: false; error: string } {
   const lobby = lobbies.get(opts.lobbyId);
   if (!lobby) return { ok: false, error: 'lobby not found' };
-  if (lobby.players.size >= lobby.maxPlayers) return { ok: false, error: 'lobby is full' };
+  // Bots bypass the maxPlayers cap — they're the load-test fleet, gated by
+  // LOADTEST_TOKEN at the handshake (see io.ts).
+  if (!opts.isBot && lobby.players.size >= lobby.maxPlayers) {
+    return { ok: false, error: 'lobby is full' };
+  }
   if (lobby.players.has(opts.socketId)) return { ok: true, lobby };
 
   lobby.players.set(opts.socketId, {
@@ -139,6 +149,7 @@ export function joinLobby(opts: {
     state: 'idle',
     lastInputAt: Date.now(),
     joinedAt: Date.now(),
+    isBot: !!opts.isBot,
   });
   playerLobby.set(opts.socketId, opts.lobbyId);
   return { ok: true, lobby };
@@ -228,13 +239,17 @@ export function lobbyToState(lobby: Lobby): LobbyState {
   };
 }
 
+/** `isAdmin` short-circuits the host check so a token-elevated admin can act
+ *  on lobbies they don't own — chiefly the Official Server, whose hostId is
+ *  the SYSTEM sentinel and matches no real socket. */
 export function kickPlayer(
   hostSocketId: string,
   targetSocketId: string,
+  isAdmin = false,
 ): { ok: true; lobbyId: string } | { ok: false; error: string } {
   const lobby = getLobbyOf(hostSocketId);
   if (!lobby) return { ok: false, error: 'not in a lobby' };
-  if (lobby.hostId !== hostSocketId) return { ok: false, error: 'not the host' };
+  if (!isAdmin && lobby.hostId !== hostSocketId) return { ok: false, error: 'not the host' };
   if (!lobby.players.has(targetSocketId)) return { ok: false, error: 'player not found' };
   if (targetSocketId === hostSocketId) return { ok: false, error: 'cannot kick yourself' };
   lobby.players.delete(targetSocketId);
@@ -245,10 +260,11 @@ export function kickPlayer(
 export function setPaused(
   hostSocketId: string,
   paused: boolean,
+  isAdmin = false,
 ): { ok: true; lobby: Lobby } | { ok: false; error: string } {
   const lobby = getLobbyOf(hostSocketId);
   if (!lobby) return { ok: false, error: 'not in a lobby' };
-  if (lobby.hostId !== hostSocketId) return { ok: false, error: 'not the host' };
+  if (!isAdmin && lobby.hostId !== hostSocketId) return { ok: false, error: 'not the host' };
   lobby.paused = paused;
   return { ok: true, lobby };
 }
@@ -256,10 +272,11 @@ export function setPaused(
 export function updateLobbyConfig(
   hostSocketId: string,
   opts: { maxPlayers?: number; name?: string },
+  isAdmin = false,
 ): { ok: true; lobby: Lobby } | { ok: false; error: string } {
   const lobby = getLobbyOf(hostSocketId);
   if (!lobby) return { ok: false, error: 'not in a lobby' };
-  if (lobby.hostId !== hostSocketId) return { ok: false, error: 'not the host' };
+  if (!isAdmin && lobby.hostId !== hostSocketId) return { ok: false, error: 'not the host' };
   if (opts.name !== undefined) {
     lobby.name = sanitize(opts.name, MAX_LOBBY_NAME, lobby.name);
   }
