@@ -1,5 +1,6 @@
 import { io, type Socket } from 'socket.io-client';
 import type {
+  AdminResult,
   ClientToServerEvents,
   ServerToClientEvents,
 } from '@pwa-demo/shared';
@@ -21,29 +22,62 @@ function readAdminToken(): string | null {
   return localStorage.getItem(ADMIN_TOKEN_KEY);
 }
 
-/** Store (or clear) the admin token in localStorage and re-handshake. A full
- *  reload is the cleanest way to re-establish the socket with new auth without
- *  tearing down every component-level listener. */
-export function setAdminToken(token: string | null): void {
-  if (typeof localStorage === 'undefined') return;
-  if (token && token.trim()) localStorage.setItem(ADMIN_TOKEN_KEY, token.trim());
-  else localStorage.removeItem(ADMIN_TOKEN_KEY);
-  window.location.reload();
-}
-
 export function hasAdminToken(): boolean {
   return !!readAdminToken();
 }
 
+/** Submit `token` to the server. Resolves with `{ok:true}` on accept (server
+ *  flips this socket's isAdmin and re-emits auth:status), `{ok:false,error}`
+ *  on reject. On success we persist to localStorage so subsequent loads can
+ *  silently re-elevate via attemptStoredAdmin. */
+export function elevateAdmin(token: string): Promise<AdminResult> {
+  return new Promise((resolve) => {
+    if (!socket) {
+      resolve({ ok: false, error: 'socket not connected' });
+      return;
+    }
+    socket.emit('admin:elevate', token, (res: AdminResult) => {
+      if (res.ok) {
+        try { localStorage.setItem(ADMIN_TOKEN_KEY, token); } catch { /* noop */ }
+      }
+      resolve(res);
+    });
+  });
+}
+
+/** Drop admin on this socket and clear the stored token. */
+export function logoutAdmin(): Promise<AdminResult> {
+  return new Promise((resolve) => {
+    if (!socket) {
+      resolve({ ok: false, error: 'socket not connected' });
+      return;
+    }
+    socket.emit('admin:logout', (res: AdminResult) => {
+      try { localStorage.removeItem(ADMIN_TOKEN_KEY); } catch { /* noop */ }
+      resolve(res);
+    });
+  });
+}
+
+/** On a fresh connection, replay any token we've stored so the user doesn't
+ *  have to re-paste it on every reload. Fire-and-forget — failure clears the
+ *  stale token without bothering the UI. */
+function attemptStoredAdmin(): void {
+  const token = readAdminToken();
+  if (!token || !socket) return;
+  socket.emit('admin:elevate', token, (res: AdminResult) => {
+    if (!res.ok) {
+      console.warn('[auth] stored admin token rejected:', res.error);
+      try { localStorage.removeItem(ADMIN_TOKEN_KEY); } catch { /* noop */ }
+    }
+  });
+}
+
 export function getSocket() {
   if (socket) return socket;
-  const adminToken = readAdminToken();
   socket = io({
     autoConnect: true,
     transports: ['websocket', 'polling'],
-    // Only send the admin auth blob when we have a token. Anonymous clients
-    // pass nothing and connect normally.
-    auth: adminToken ? { isAdmin: true, token: adminToken } : {},
   });
 
   socket.onAny((_event: string, ...args: unknown[]) => {
@@ -51,17 +85,9 @@ export function getSocket() {
     try { socketMetrics.rxBytesEst += JSON.stringify(args).length; } catch { /* noop */ }
   });
 
-  // If the server rejects our admin token at the handshake (wrong value or
-  // ADMIN_TOKEN unset), clear it locally and let socket.io retry anonymously —
-  // otherwise the same bad token would loop forever and the user couldn't
-  // even play the game.
-  socket.on('connect_error', (err) => {
-    if (adminToken && /admin/i.test(err.message)) {
-      console.warn('[auth] admin token rejected, clearing:', err.message);
-      localStorage.removeItem(ADMIN_TOKEN_KEY);
-      if (socket) socket.auth = {};
-    }
-  });
+  // Re-elevate on every connection (initial + after any reconnect), since
+  // the server holds isAdmin in per-socket data and a reconnect = fresh socket.
+  socket.on('connect', attemptStoredAdmin);
 
   return socket;
 }

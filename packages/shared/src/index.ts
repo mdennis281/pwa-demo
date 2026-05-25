@@ -161,6 +161,12 @@ export interface ClientToServerEvents {
   'lobby:leave': () => void;
   'game:input': (input: LocalInput) => void;
   'admin:action': (action: AdminAction, cb: (r: AdminResult) => void) => void;
+  /** Runtime privilege elevation — present a token, get isAdmin on success.
+   *  Beats handshake auth because failure can be surfaced in the UI without
+   *  a page reload. Server flips socket.data.isAdmin and re-emits auth:status. */
+  'admin:elevate': (token: string, cb: (r: AdminResult) => void) => void;
+  /** Drop admin privileges on this socket. No-op if not currently elevated. */
+  'admin:logout': (cb: (r: AdminResult) => void) => void;
   'debug:subscribe': () => void;
   'debug:unsubscribe': () => void;
 }

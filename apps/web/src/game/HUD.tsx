@@ -10,8 +10,6 @@ export default function HUD({
   isPlayer,
   debugOpen,
   onToggleDebug,
-  isAdmin,
-  onAdminLogin,
 }: {
   myHeight: number;
   myMaxHeight: number;
@@ -22,8 +20,6 @@ export default function HUD({
   isPlayer: boolean;
   debugOpen: boolean;
   onToggleDebug: () => void;
-  isAdmin: boolean;
-  onAdminLogin: () => void;
 }) {
   const ranking = [...players]
     .filter((p) => p.role === 'player')
@@ -34,7 +30,7 @@ export default function HUD({
     <div className="absolute inset-0 pointer-events-none text-white z-10">
       {/* Top-left: my altitude + jump indicator. Note `pr-12` reserves room
           for the icon buttons docked in this card's top-right corner. */}
-      <div className="absolute top-4 left-4 pointer-events-auto bg-slate-950/70 backdrop-blur border border-slate-800 rounded-lg px-3 py-2 pr-12 font-mono text-sm">
+      <div className="absolute top-4 left-4 pointer-events-auto bg-slate-950/70 backdrop-blur border border-slate-800 rounded-lg px-3 py-2 pr-9 font-mono text-sm">
         <div className="text-slate-400 text-[10px] uppercase tracking-wider">altitude</div>
         <div className="text-2xl font-bold tabular-nums">{myHeight.toFixed(1)}m</div>
         <div className="text-xs text-slate-400 tabular-nums">best: {myMaxHeight.toFixed(1)}m</div>
@@ -56,33 +52,19 @@ export default function HUD({
             })}
           </div>
         )}
-        {/* corner icons */}
-        <div className="absolute top-1 right-1 flex gap-0.5">
-          <button
-            type="button"
-            onClick={onToggleDebug}
-            title="Debug panel"
-            className={`w-6 h-6 rounded flex items-center justify-center text-[11px] leading-none transition ${
-              debugOpen
-                ? 'bg-slate-700/90 text-white'
-                : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800/70'
-            }`}
-          >
-            🐛
-          </button>
-          <button
-            type="button"
-            onClick={onAdminLogin}
-            title={isAdmin ? 'Admin token (clear to log out)' : 'Admin login'}
-            className={`w-6 h-6 rounded flex items-center justify-center text-[11px] leading-none transition ${
-              isAdmin
-                ? 'text-amber-300 hover:bg-slate-800/70'
-                : 'text-slate-500 hover:text-amber-300 hover:bg-slate-800/70'
-            }`}
-          >
-            🔐
-          </button>
-        </div>
+        {/* corner icon — debug toggle. Admin elevation lives inside the panel. */}
+        <button
+          type="button"
+          onClick={onToggleDebug}
+          title="Debug panel"
+          className={`absolute top-1 right-1 w-6 h-6 rounded flex items-center justify-center text-[11px] leading-none transition ${
+            debugOpen
+              ? 'bg-slate-700/90 text-white'
+              : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800/70'
+          }`}
+        >
+          🐛
+        </button>
       </div>
 
       {/* Top-right: leaderboard */}

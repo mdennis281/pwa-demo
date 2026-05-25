@@ -31,41 +31,31 @@ export function getPing(socketId: string): number | null {
 }
 
 export function attachSocket(io: Server<ClientToServerEvents, ServerToClientEvents>) {
-  // Handshake gate for elevated connections — the headless load-test fleet
-  // and the human server admin. Both carry an auth blob:
-  //   io(url, { auth: { isBot: true,  token: LOADTEST_TOKEN } })
-  //   io(url, { auth: { isAdmin: true, token: ADMIN_TOKEN    } })
-  // Wrong/missing token + a privilege claim is a hard reject (never falls
-  // through to a normal anonymous connection). A normal client passes no
-  // auth blob and connects unchanged.
+  // Handshake gate for the headless load-test bot fleet only — bots can't
+  // ack a runtime event before they start sending inputs, so they have to
+  // present the token at connect time:
+  //   io(url, { auth: { isBot: true, token: LOADTEST_TOKEN } })
+  // Wrong/missing token + a bot claim is a hard reject. Anonymous clients
+  // (no auth blob) and admins (token submitted via admin:elevate post-connect)
+  // pass through unchanged.
   io.use((socket, next) => {
     const auth = (socket.handshake.auth ?? {}) as {
       isBot?: boolean;
-      isAdmin?: boolean;
       token?: string;
     };
-    if (auth.isBot) {
-      if (!env.LOADTEST_TOKEN) {
-        next(new Error('bot connections disabled (LOADTEST_TOKEN unset)'));
-        return;
-      }
-      if (auth.token !== env.LOADTEST_TOKEN) {
-        next(new Error('invalid bot token'));
-        return;
-      }
-      socket.data.isBot = true;
+    if (!auth.isBot) {
+      next();
+      return;
     }
-    if (auth.isAdmin) {
-      if (!env.ADMIN_TOKEN) {
-        next(new Error('admin elevation disabled (ADMIN_TOKEN unset)'));
-        return;
-      }
-      if (auth.token !== env.ADMIN_TOKEN) {
-        next(new Error('invalid admin token'));
-        return;
-      }
-      socket.data.isAdmin = true;
+    if (!env.LOADTEST_TOKEN) {
+      next(new Error('bot connections disabled (LOADTEST_TOKEN unset)'));
+      return;
     }
+    if (auth.token !== env.LOADTEST_TOKEN) {
+      next(new Error('invalid bot token'));
+      return;
+    }
+    socket.data.isBot = true;
     next();
   });
 
@@ -130,6 +120,32 @@ export function attachSocket(io: Server<ClientToServerEvents, ServerToClientEven
 
     socket.on('debug:unsubscribe', () => {
       socket.leave(DEBUG_ROOM);
+    });
+
+    socket.on('admin:elevate', (token: string, cb) => {
+      if (!env.ADMIN_TOKEN) {
+        cb({ ok: false, error: 'admin elevation disabled' });
+        return;
+      }
+      if (typeof token !== 'string' || token !== env.ADMIN_TOKEN) {
+        cb({ ok: false, error: 'invalid token' });
+        return;
+      }
+      socket.data.isAdmin = true;
+      socket.emit('auth:status', {
+        isAdmin: true,
+        isBot: socket.data.isBot === true,
+      });
+      cb({ ok: true });
+    });
+
+    socket.on('admin:logout', (cb) => {
+      socket.data.isAdmin = false;
+      socket.emit('auth:status', {
+        isAdmin: false,
+        isBot: socket.data.isBot === true,
+      });
+      cb({ ok: true });
     });
 
     socket.on('ping:probe', (sentAt: number) => {

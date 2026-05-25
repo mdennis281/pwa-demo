@@ -16,7 +16,7 @@ import { useKeyboard } from './controls/useKeyboard';
 import { useMouseLook } from './controls/useMouseLook';
 import { input } from './controls/input';
 import type { AuthStatus, GameSnapshot, LocalInput, LobbyState, Role } from '@pwa-demo/shared';
-import { getSocket, hasAdminToken, setAdminToken } from '../lib/socket';
+import { getSocket } from '../lib/socket';
 
 /** Kick off shader compilation for every material in the scene up-front.
  *  Without this, Three.js compiles each material lazily on its first draw
@@ -100,15 +100,6 @@ export default function GameCanvas({
     return () => window.removeEventListener('keydown', onKey);
   }, [canAdmin]);
 
-  function handleAdminLogin() {
-    const existing = hasAdminToken();
-    const next = window.prompt(
-      existing ? 'Admin token (clear to log out):' : 'Admin token:',
-      '',
-    );
-    if (next === null) return; // user cancelled
-    setAdminToken(next.trim() || null); // empty string clears + reloads
-  }
 
   // Periodic ping probe so the server tracks each player's ping
   useEffect(() => {
@@ -251,8 +242,6 @@ export default function GameCanvas({
         isPlayer={role === 'player'}
         debugOpen={debugOpen}
         onToggleDebug={() => setDebugOpen((v) => !v)}
-        isAdmin={isAdmin}
-        onAdminLogin={handleAdminLogin}
       />
 
       <TouchControls active={isTouch} />
@@ -279,6 +268,7 @@ export default function GameCanvas({
         selfId={selfId}
         myPing={myPing}
         snapshotCount={snapshotCount}
+        isAdmin={isAdmin}
       />
 
       {paused && (

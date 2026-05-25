@@ -9,12 +9,13 @@
   ],
   "scripts": {
     "dev": "concurrently -n web,api -c cyan,magenta \"npm -w apps/web run dev\" \"npm -w apps/server run dev\"",
-    "prebuild": "npm run gen:assets",
+    "prebuild": "npm run gen:assets && npm run gen:screenshots",
     "build": "npm -w packages/shared run build && npm -w apps/web run build && npm -w apps/server run build",
     "start": "node apps/server/dist/index.js",
     "bots": "npm -w apps/bots run start --",
     "gen:vapid": "node scripts/gen-vapid.mjs",
     "gen:assets": "pwa-assets-generator --config pwa-assets.config.ts",
+    "gen:screenshots": "node scripts/gen-screenshots.mjs",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "db:push": "npm -w apps/server run db:push"

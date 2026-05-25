@@ -138,6 +138,9 @@ apps/web/public/apple-touch-icon-*.png
 apps/web/public/maskable-icon-*.png
 apps/web/public/favicon.ico
 
+# Generated PWA install-prompt screenshots (regen via `npm run gen:screenshots`)
+apps/web/public/screenshots/
+
 # Build outputs
 apps/*/dist/
 packages/*/dist/
