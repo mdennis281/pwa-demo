@@ -29,7 +29,27 @@ type State = {
   winW: number;
   winH: number;
   geomEvents: number;
+  displayMode: DisplayMode;
 };
+
+// Order matters: more-specific modes first, so currentDisplayMode() returns
+// the most informative match. 'browser' is the fallback when nothing else hit.
+const DISPLAY_MODES = [
+  'window-controls-overlay',
+  'fullscreen',
+  'standalone',
+  'minimal-ui',
+  'browser',
+] as const;
+type DisplayMode = typeof DISPLAY_MODES[number];
+
+function currentDisplayMode(): DisplayMode {
+  if (typeof window === 'undefined' || !window.matchMedia) return 'browser';
+  for (const m of DISPLAY_MODES) {
+    if (window.matchMedia(`(display-mode: ${m})`).matches) return m;
+  }
+  return 'browser';
+}
 
 export default function WCOPage() {
   const wco = useMemo(getWCO, []);
@@ -40,27 +60,36 @@ export default function WCOPage() {
     winW: typeof window !== 'undefined' ? window.innerWidth : 0,
     winH: typeof window !== 'undefined' ? window.innerHeight : 0,
     geomEvents: 0,
+    displayMode: currentDisplayMode(),
   }));
 
   useEffect(() => {
-    if (!wco) return;
     function update(fromGeom: boolean) {
       setS((prev) => ({
         ...prev,
-        visible: wco!.visible,
-        rect: wco!.getTitlebarAreaRect?.() ?? null,
+        visible: wco?.visible ?? false,
+        rect: wco?.getTitlebarAreaRect?.() ?? null,
         winW: window.innerWidth,
         winH: window.innerHeight,
         geomEvents: fromGeom ? prev.geomEvents + 1 : prev.geomEvents,
+        displayMode: currentDisplayMode(),
       }));
     }
     const onGeom = () => update(true);
     const onResize = () => update(false);
-    wco.addEventListener('geometrychange', onGeom);
+    wco?.addEventListener('geometrychange', onGeom);
     window.addEventListener('resize', onResize);
+    // Listen for display-mode flips too (e.g. OS-level fullscreen toggle).
+    const modeListeners = DISPLAY_MODES.map((m) => {
+      const mq = window.matchMedia(`(display-mode: ${m})`);
+      const h = () => update(false);
+      mq.addEventListener('change', h);
+      return { mq, h };
+    });
     return () => {
-      wco.removeEventListener('geometrychange', onGeom);
+      wco?.removeEventListener('geometrychange', onGeom);
       window.removeEventListener('resize', onResize);
+      modeListeners.forEach(({ mq, h }) => mq.removeEventListener('change', h));
     };
   }, [wco]);
 
@@ -126,20 +155,19 @@ export default function WCOPage() {
             exposed here. WCO is desktop-only and requires Chrome/Edge 105+.
           </p>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm font-mono">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm font-mono">
             <Stat label="visible" value={String(s.visible)} highlight={s.visible ? 'text-emerald-300' : 'text-slate-500'} />
+            <Stat
+              label="display-mode"
+              value={s.displayMode}
+              highlight={s.displayMode === 'window-controls-overlay' ? 'text-emerald-300' : 'text-amber-300'}
+            />
             <Stat label="window" value={`${s.winW} × ${s.winH}`} />
             <Stat label="titlebar rect" value={s.rect ? `${s.rect.width.toFixed(0)} × ${s.rect.height.toFixed(0)}` : '—'} />
             <Stat label="geom events" value={String(s.geomEvents)} />
           </div>
         )}
-        {supported && !s.visible && (
-          <p className="text-amber-300 text-xs leading-relaxed">
-            API is here, but <code className="bg-slate-950 px-1 rounded">visible</code> is false — this means
-            you're in a browser tab, not the installed PWA window. Install the app and reopen it as a standalone
-            window to see WCO activate.
-          </p>
-        )}
+        {supported && !s.visible && <Diagnostic mode={s.displayMode} />}
       </section>
 
       {/* schematic of the current window with the titlebar rect highlighted */}
@@ -233,6 +261,53 @@ navigator.windowControlsOverlay.addEventListener('geometrychange', () => {
 }
 
 // ─── building blocks ──────────────────────────────────────────────────────
+
+/** Picks the right "why isn't WCO active" explanation. The previous version
+ *  always said "install the app" — wrong when the user already IS inside an
+ *  installed standalone window. */
+function Diagnostic({ mode }: { mode: DisplayMode }) {
+  if (mode === 'browser') {
+    return (
+      <p className="text-amber-300 text-xs leading-relaxed">
+        You're in a browser tab. WCO only applies to installed PWA windows —{' '}
+        <Link to="/manifest" className="underline">install the app</Link> and reopen it from your OS app
+        launcher.
+      </p>
+    );
+  }
+  if (mode === 'standalone' || mode === 'minimal-ui') {
+    return (
+      <div className="text-amber-300 text-xs leading-relaxed space-y-2">
+        <p>
+          You're running as an <em>installed</em> PWA (<code className="bg-slate-950 px-1 rounded">{mode}</code>),
+          but Chrome picked plain standalone mode instead of WCO from this app's{' '}
+          <code className="bg-slate-950 px-1 rounded">display_override</code> list. The display preference is
+          baked in at install time — almost always this means the PWA was installed before WCO was added to
+          the manifest.
+        </p>
+        <p>
+          <strong>Fix:</strong> uninstall the PWA (<code className="bg-slate-950 px-1 rounded">⋮ menu → Uninstall</code>),
+          then reinstall from a browser tab. The fresh install will read the current manifest and pick WCO.
+        </p>
+      </div>
+    );
+  }
+  if (mode === 'fullscreen') {
+    return (
+      <p className="text-amber-300 text-xs leading-relaxed">
+        Fullscreen mode hides the titlebar entirely, so WCO has nothing to overlay. Exit fullscreen to see it.
+      </p>
+    );
+  }
+  // display-mode is window-controls-overlay but visible is false — should be
+  // rare; treat it as a transient state.
+  return (
+    <p className="text-amber-300 text-xs leading-relaxed">
+      display-mode reports <code className="bg-slate-950 px-1 rounded">window-controls-overlay</code> but the
+      overlay isn't visible — this usually means the window is too narrow for the OS to draw controls. Resize wider.
+    </p>
+  );
+}
 
 function StatusPill({ supported, active }: { supported: boolean; active: boolean }) {
   if (!supported) {
