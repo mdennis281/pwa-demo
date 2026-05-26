@@ -294,8 +294,14 @@ export default function WCOPage() {
             Then launch it from the OS app launcher, not as a tab.
           </li>
           <li>
-            Inside the installed window, this page should report <code className="bg-slate-950 px-1 rounded">visible: true</code>{' '}
-            and the schematic above will show the live titlebar rect.
+            <strong className="text-amber-300">Click the ⌃ "Hide title bar" button</strong> in the installed
+            window's titlebar. This is the step most articles skip — WCO is opt-in per session, not automatic.
+            The same chevron toggles it back off.
+          </li>
+          <li>
+            This page's <code className="bg-slate-950 px-1 rounded">visible</code> stat will flip to{' '}
+            <code className="bg-slate-950 px-1 rounded">true</code> and the schematic populates with the
+            live titlebar rect.
           </li>
         </ol>
       </section>
@@ -408,22 +414,28 @@ function Diagnostic({
       </p>
     );
   }
-  // 5. Installed but display-mode is standalone. By this point the manifest IS
-  // serving WCO and we ARE in a secure context — so the cause is most likely
-  // install-time staleness.
+  // 5. Installed PWA, manifest correct, secure context true — but mode is
+  // still standalone. This is the most-common-and-least-documented case:
+  // WCO is opt-in per session via a UI toggle in the title bar, not
+  // automatic on install. The web.dev article makes it sound automatic;
+  // Edge's docs are the only ones that actually mention the toggle.
   if (mode === 'standalone' || mode === 'minimal-ui') {
     return (
-      <div className="text-amber-300 text-xs leading-relaxed space-y-2">
-        <p>
-          You're in an installed PWA (<code className="bg-slate-950 px-1 rounded">{mode}</code>), the manifest
-          declares WCO, and you're in a secure context — so Chrome should be picking WCO. It isn't, which
-          usually means the install snapshotted an older manifest. Try:
+      <div className="text-emerald-300 text-xs leading-relaxed space-y-2 border border-emerald-500/30 bg-emerald-500/5 rounded p-3">
+        <p className="font-semibold text-emerald-200">Nothing's broken — WCO is a per-session toggle.</p>
+        <p className="text-slate-300">
+          The manifest is right, you're in a secure context, and you're inside an installed PWA window
+          (<code className="bg-slate-950 px-1 rounded">{mode}</code>). The remaining step is the one the
+          docs almost never mention: WCO has to be turned on at runtime by clicking the{' '}
+          <strong className="text-emerald-200">⌃ "Hide title bar"</strong> button in your PWA window's
+          titlebar. It sits next to the install / ⋯ / minimize / maximize / close icons.
         </p>
-        <ul className="list-disc list-inside space-y-1 ml-2">
-          <li>Uninstall from <code className="bg-slate-950 px-1 rounded">⋮ → Uninstall</code></li>
-          <li>In a browser tab, clear site data: <code className="bg-slate-950 px-1 rounded">⋯ → DevTools → Application → Clear storage → Clear site data</code></li>
-          <li>Hard-reload the tab and reinstall</li>
-        </ul>
+        <p className="text-slate-400">
+          Click it and this page's <code className="bg-slate-950 px-1 rounded">display-mode</code> will
+          flip to <code className="bg-slate-950 px-1 rounded">window-controls-overlay</code> and{' '}
+          <code className="bg-slate-950 px-1 rounded">visible</code> to <code className="bg-slate-950 px-1 rounded">true</code>{' '}
+          without reload. There's no manifest setting that auto-enables it — only the user can.
+        </p>
       </div>
     );
   }
