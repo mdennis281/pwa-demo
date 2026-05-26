@@ -97,6 +97,54 @@ self.addEventListener('message', (event) => {
   if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
+self.addEventListener('periodicsync', ((event: ExtendableEvent & { tag: string }) => {
+  if (event.tag === 'pbs-demo') {
+    event.waitUntil(
+      (async () => {
+        try {
+          const db = await new Promise<IDBDatabase>((resolve, reject) => {
+            const req = indexedDB.open('pwa-demo', 1);
+            req.onupgradeneeded = () => {
+              req.result.createObjectStore('pbs-sync');
+              req.result.createObjectStore('pbs-queue', { keyPath: 'id' });
+            };
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+          });
+
+          // Record the sync time
+          const txSync = db.transaction('pbs-sync', 'readwrite');
+          await new Promise<void>((resolve) => {
+            txSync.objectStore('pbs-sync').put({ lastSync: Date.now() }, 'pbs-demo');
+            resolve();
+          });
+
+          // Mark all unsynced queue items as synced
+          const txQueue = db.transaction('pbs-queue', 'readwrite');
+          const items = await new Promise<any[]>((resolve, reject) => {
+            const req = txQueue.objectStore('pbs-queue').getAll();
+            req.onsuccess = () => resolve(req.result || []);
+            req.onerror = () => reject(req.error);
+          });
+
+          for (const item of items) {
+            if (!item.synced) {
+              await new Promise<void>((resolve, reject) => {
+                const req = txQueue.objectStore('pbs-queue').put({ ...item, synced: true });
+                req.onsuccess = () => resolve();
+                req.onerror = () => reject(req.error);
+              });
+            }
+          }
+        } catch (_err) {
+          // best effort
+        }
+      })(),
+    );
+  }
+}) as EventListener);
+
+
 function safeJson(d: PushMessageData): Record<string, unknown> {
   try { return d.json(); } catch { return { body: d.text() }; }
 }

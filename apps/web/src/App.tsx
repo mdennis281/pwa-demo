@@ -12,6 +12,8 @@ const Game = lazy(() => import('./routes/Game'));
 const Islands = lazy(() => import('./routes/Islands'));
 const WCO = lazy(() => import('./routes/WCO'));
 const IndexedDBDemo = lazy(() => import('./routes/IndexedDB'));
+const Passkeys = lazy(() => import('./routes/Passkeys'));
+const SpeechEcho = lazy(() => import('./routes/SpeechEcho'));
 
 export default function App() {
   return (
@@ -86,6 +88,22 @@ export default function App() {
           element={
             <Suspense fallback={<Loading />}>
               <WCO />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/speech-echo"
+          element={
+            <Suspense fallback={<Loading />}>
+              <SpeechEcho />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/passkeys"
+          element={
+            <Suspense fallback={<Loading />}>
+              <Passkeys />
             </Suspense>
           }
         />

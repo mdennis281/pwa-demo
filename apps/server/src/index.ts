@@ -10,6 +10,8 @@ import { attachSocket } from './io.js';
 import vapidRoute from './routes/vapid.js';
 import pushRoute from './routes/push.js';
 import towerRoute from './routes/tower.js';
+import bgfetchRoute from './routes/bgfetch.js';
+import passkeysRoute from './routes/passkeys.js';
 
 webpush.setVapidDetails(env.VAPID_SUBJECT, env.VAPID_PUBLIC_KEY, env.VAPID_PRIVATE_KEY);
 
@@ -23,6 +25,8 @@ app.get('/api/health', (_req, res) => res.json({ ok: true, uptime: process.uptim
 app.use('/api/vapid-public-key', vapidRoute);
 app.use('/api/push', pushRoute);
 app.use('/api/tower', towerRoute);
+app.use('/api/bg-fetch-demo', bgfetchRoute);
+app.use('/api/passkeys', passkeysRoute);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const webDist = path.resolve(__dirname, '../../web/dist');

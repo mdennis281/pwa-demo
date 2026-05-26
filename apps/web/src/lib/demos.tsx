@@ -197,17 +197,217 @@ function PageLifecycleDemo() {
 
 function BgSyncDemo() {
   const [out, setOut] = useState('—');
-  async function go() {
+  const [lastSync, setLastSync] = useState<string | null>(null);
+  const [queue, setQueue] = useState<Array<{ id: string; msg: string; at: number; synced?: boolean }>>([]);
+  const [fakeOffline, setFakeOffline] = useState(false);
+  const [formValue, setFormValue] = useState('');
+
+  async function registerSync() {
     const reg = await navigator.serviceWorker?.ready;
     const r = reg as ServiceWorkerRegistration & { sync?: { register: (tag: string) => Promise<void> } };
     if (!r?.sync) return setOut('unsupported (SW + SyncManager required)');
-    try { await r.sync.register('demo-sync'); setOut('sync registered (tag: demo-sync)'); }
-    catch (e) { setOut((e as Error).message); }
+    try {
+      await r.sync.register('pbs-demo');
+      setOut('sync registered');
+      pollQueue();
+    } catch (e) { setOut((e as Error).message); }
   }
+
+  async function submitItem() {
+    if (!formValue.trim()) return;
+    try {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const req = indexedDB.open('pwa-demo', 1);
+        req.onupgradeneeded = () => {
+          req.result.createObjectStore('pbs-sync');
+          req.result.createObjectStore('pbs-queue', { keyPath: 'id' });
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+
+      if (fakeOffline) {
+        const tx = db.transaction('pbs-queue', 'readwrite');
+        const id = `${Date.now()}-${Math.random()}`;
+        await new Promise<void>((resolve, reject) => {
+          const req = tx.objectStore('pbs-queue').add({ id, msg: formValue, at: Date.now(), synced: false });
+          req.onsuccess = () => resolve();
+          req.onerror = () => reject(req.error);
+        });
+        setFormValue('');
+        pollQueue();
+      } else {
+        const tx = db.transaction(['pbs-queue', 'pbs-sync'], 'readwrite');
+        const id = `${Date.now()}-${Math.random()}`;
+        await new Promise<void>((resolve, reject) => {
+          const req = tx.objectStore('pbs-queue').add({ id, msg: formValue, at: Date.now(), synced: true });
+          req.onsuccess = () => resolve();
+          req.onerror = () => reject(req.error);
+        });
+        await new Promise<void>((resolve) => {
+          tx.objectStore('pbs-sync').put({ lastSync: Date.now() }, 'pbs-demo');
+          resolve();
+        });
+        setFormValue('');
+        pollQueue();
+      }
+    } catch (e) {
+      setOut((e as Error).message);
+    }
+  }
+
+  async function pollQueue() {
+    try {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const req = indexedDB.open('pwa-demo', 1);
+        req.onupgradeneeded = () => {
+          req.result.createObjectStore('pbs-sync');
+          req.result.createObjectStore('pbs-queue', { keyPath: 'id' });
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+
+      const txSync = db.transaction('pbs-sync', 'readonly');
+      const syncData = await new Promise<{ lastSync: number } | undefined>((resolve, reject) => {
+        const req = txSync.objectStore('pbs-sync').get('pbs-demo');
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      if (syncData?.lastSync) {
+        const time = new Date(syncData.lastSync).toLocaleTimeString();
+        setLastSync(`${time} UTC`);
+      }
+
+      const txQueue = db.transaction('pbs-queue', 'readonly');
+      const items = await new Promise<any[]>((resolve, reject) => {
+        const req = txQueue.objectStore('pbs-queue').getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+      });
+      setQueue(items.sort((a, b) => b.at - a.at));
+    } catch {
+      /* best effort */
+    }
+  }
+
+  useEffect(() => {
+    const handleToggle = (e: Event) => {
+      const detail = (e as CustomEvent<{ fakeOffline: boolean }>).detail;
+      setFakeOffline(detail.fakeOffline);
+    };
+    window.addEventListener('pwa-demo:offline-toggle', handleToggle);
+    return () => window.removeEventListener('pwa-demo:offline-toggle', handleToggle);
+  }, []);
+
+  useEffect(() => {
+    const id = window.setInterval(pollQueue, 2000);
+    pollQueue();
+    return () => window.clearInterval(id);
+  }, []);
+
   return (
-    <div>
-      <button onClick={go} className={btn}>Register sync</button>
+    <div className="space-y-3">
+      <div className="flex gap-2">
+        <button onClick={registerSync} className={btn}>Register sync</button>
+        <button onClick={pollQueue} className={btnGhost}>Refresh</button>
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="text-xs text-slate-400">submit while offline (toggle in sidebar):</div>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={formValue}
+            onChange={(e) => setFormValue(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && submitItem()}
+            placeholder="message"
+            className="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs"
+          />
+          <button onClick={submitItem} className={btn}>Submit</button>
+        </div>
+      </div>
+
+      {queue.length > 0 && (
+        <div className="text-xs bg-slate-800/40 border border-slate-700 rounded p-2 space-y-1 max-h-40 overflow-y-auto">
+          <div className="text-slate-400 font-mono text-[10px]">queue ({queue.length}):</div>
+          {queue.map((item) => (
+            <div key={item.id} className={`font-mono text-[10px] ${item.synced ? 'text-emerald-300' : 'text-amber-300'}`}>
+              {item.synced ? '✓' : '◴'} {item.msg} · {new Date(item.at).toLocaleTimeString()}
+            </div>
+          ))}
+        </div>
+      )}
+
       <Out>{out}</Out>
+      {lastSync && <Out tone="ok">last sync: {lastSync}</Out>}
+      <div className="text-xs text-slate-500">toggle offline mode in sidebar, submit items, then go back online to flush the queue</div>
+    </div>
+  );
+}
+
+function BgFetchDemo() {
+  const [mb, setMb] = useState(5);
+  const [fetchId, setFetchId] = useState<string | null>(null);
+  const [progress, setProgress] = useState(0);
+  const [status, setStatus] = useState('—');
+
+  async function start() {
+    if (!('serviceWorker' in navigator) || !('BackgroundFetchManager' in window)) {
+      return setStatus('unsupported (Chrome/Edge + SW required)');
+    }
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const bgManager = (reg as ServiceWorkerRegistration & { backgroundFetch?: { fetch: (id: string, urls: string[], opts: { icons: Array<{ src: string; sizes: string; type: string }>; title: string }) => Promise<{ id: string }> } }).backgroundFetch;
+
+      if (!bgManager) return setStatus('BackgroundFetchManager unavailable');
+
+      const id = `demo-${Date.now()}`;
+      const result = await bgManager.fetch(id, [`/api/bg-fetch-demo?mb=${mb}`], {
+        title: `Download ${mb}MB`,
+        icons: [{ src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' }],
+      });
+
+      setFetchId(result.id);
+      setStatus('downloading…');
+
+      const pollInterval = setInterval(async () => {
+        try {
+          const bg = (reg as any).backgroundFetch;
+          const fetches = await bg.getIds();
+          const f = fetches.includes(id) ? await bg.get(id) : null;
+          if (!f) {
+            clearInterval(pollInterval);
+            setStatus('completed');
+            setProgress(100);
+            return;
+          }
+          const pct = f.downloadTotal ? Math.round((f.downloaded / f.downloadTotal) * 100) : 0;
+          setProgress(pct);
+        } catch (e) {
+          clearInterval(pollInterval);
+          setStatus((e as Error).message);
+        }
+      }, 500);
+    } catch (e) {
+      setStatus((e as Error).message);
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex gap-2 items-center">
+        <select value={mb} onChange={(e) => setMb(Number(e.target.value))} disabled={!!fetchId} className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs">
+          <option value={1}>1 MB</option>
+          <option value={5}>5 MB</option>
+          <option value={10}>10 MB</option>
+        </select>
+        <button onClick={start} disabled={!!fetchId} className={btn}>Start download</button>
+      </div>
+      {fetchId && <div className="text-xs text-slate-400">fetch id: {fetchId}</div>}
+      {progress > 0 && <div className="w-full bg-slate-800 rounded overflow-hidden"><div className="bg-brand-500 h-2 transition-all" style={{ width: `${progress}%` }} /></div>}
+      {progress > 0 && progress < 100 && <div className="text-xs text-slate-400">{progress}%</div>}
+      <Out>{status}</Out>
     </div>
   );
 }
@@ -599,7 +799,7 @@ function PiPDemo() {
   return (
     <div>
       <video ref={ref} autoPlay loop muted playsInline className="w-full max-w-xs rounded bg-black/40"
-        src="https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4" />
+        src="/demo-video.webm" />
       <div className="mt-2"><button onClick={go} className={btn}>Open PiP</button></div>
       <Out>{out}</Out>
     </div>
@@ -822,45 +1022,302 @@ function EyeDropperDemo() {
 
 // ────────────────────── Identity & payments ──────────────────────
 
+// WebAuthn helpers — base64url for moving Uint8Arrays through localStorage.
+function b64uEncode(buf: ArrayBuffer | Uint8Array): string {
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  let str = '';
+  for (let i = 0; i < bytes.byteLength; i++) str += String.fromCharCode(bytes[i]);
+  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function b64uDecode(s: string): ArrayBuffer {
+  const pad = '='.repeat((4 - (s.length % 4)) % 4);
+  const raw = atob((s + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr.buffer;
+}
+
+const WEBAUTHN_CRED_KEY = 'demo:webauthn:credId';
+const WEBAUTHN_USER_KEY = 'demo:webauthn:user';
+
 function WebAuthnDemo() {
-  const [out, setOut] = useState('—');
-  async function check() {
-    const W = window as Window & { PublicKeyCredential?: { isUserVerifyingPlatformAuthenticatorAvailable?: () => Promise<boolean> } };
-    if (!W.PublicKeyCredential?.isUserVerifyingPlatformAuthenticatorAvailable) return setOut('unsupported');
-    const ok = await W.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-    setOut(`platform authenticator available: ${ok}`);
+  // Self-contained register/authenticate demo. A real app verifies the
+  // assertion server-side; here we just prove the browser can create and
+  // assert a credential against the same origin. The credential ID lives
+  // in localStorage so "sign in" works across reloads.
+  const [username, setUsername] = useState('demo@example.com');
+  const [storedUser, setStoredUser] = useState<string | null>(
+    typeof window === 'undefined' ? null : window.localStorage.getItem(WEBAUTHN_USER_KEY),
+  );
+  const [out, setOut] = useState<{ tone: 'default' | 'ok' | 'err'; msg: string }>({
+    tone: 'default', msg: '—',
+  });
+  const supported = typeof window !== 'undefined' && 'PublicKeyCredential' in window;
+
+  async function register() {
+    if (!supported) return setOut({ tone: 'err', msg: 'unsupported' });
+    try {
+      const challenge = crypto.getRandomValues(new Uint8Array(32));
+      const userId = crypto.getRandomValues(new Uint8Array(16));
+      const cred = (await navigator.credentials.create({
+        publicKey: {
+          challenge,
+          rp: { name: 'PWA Demo', id: location.hostname },
+          user: { id: userId, name: username, displayName: username },
+          // ES256 + RS256 cover virtually every authenticator in the wild.
+          pubKeyCredParams: [
+            { alg: -7, type: 'public-key' },
+            { alg: -257, type: 'public-key' },
+          ],
+          authenticatorSelection: { residentKey: 'preferred', userVerification: 'preferred' },
+          attestation: 'none',
+          timeout: 60_000,
+        },
+      })) as PublicKeyCredential | null;
+      if (!cred) return setOut({ tone: 'err', msg: 'create() returned null' });
+      const credId = b64uEncode(cred.rawId);
+      window.localStorage.setItem(WEBAUTHN_CRED_KEY, credId);
+      window.localStorage.setItem(WEBAUTHN_USER_KEY, username);
+      setStoredUser(username);
+      setOut({ tone: 'ok', msg: `registered passkey for ${username} (id: ${credId.slice(0, 12)}…)` });
+    } catch (e) {
+      setOut({ tone: 'err', msg: (e as Error).message });
+    }
   }
+
+  async function authenticate() {
+    if (!supported) return setOut({ tone: 'err', msg: 'unsupported' });
+    const credId = window.localStorage.getItem(WEBAUTHN_CRED_KEY);
+    if (!credId) return setOut({ tone: 'err', msg: 'no credential — register first' });
+    try {
+      const challenge = crypto.getRandomValues(new Uint8Array(32));
+      const assertion = (await navigator.credentials.get({
+        publicKey: {
+          challenge,
+          allowCredentials: [{ id: b64uDecode(credId), type: 'public-key' }],
+          userVerification: 'preferred',
+          timeout: 60_000,
+        },
+      })) as PublicKeyCredential | null;
+      if (!assertion) return setOut({ tone: 'err', msg: 'get() returned null' });
+      setOut({ tone: 'ok', msg: `signed in as ${storedUser} — assertion ${assertion.id.slice(0, 12)}…` });
+    } catch (e) {
+      setOut({ tone: 'err', msg: (e as Error).message });
+    }
+  }
+
+  function forget() {
+    window.localStorage.removeItem(WEBAUTHN_CRED_KEY);
+    window.localStorage.removeItem(WEBAUTHN_USER_KEY);
+    setStoredUser(null);
+    setOut({ tone: 'default', msg: 'cleared local credential (the authenticator still has it)' });
+  }
+
   return (
-    <div>
-      <button onClick={check} className={btn}>Check platform authenticator</button>
-      <Out>{out}</Out>
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="email"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          disabled={!!storedUser}
+          placeholder="user@example.com"
+          className="flex-1 min-w-[12rem] bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs font-mono disabled:opacity-60"
+        />
+        <button onClick={register} disabled={!supported || !!storedUser} className={btn}>Register passkey</button>
+        <button onClick={authenticate} disabled={!supported || !storedUser} className={btn}>Sign in</button>
+        <button onClick={forget} disabled={!storedUser} className={btnGhost}>Forget</button>
+      </div>
+      <div className="text-[10px] text-slate-500">
+        {storedUser ? `Saved credential for ${storedUser}` : 'No credential stored yet'}
+      </div>
+      <Out tone={out.tone}>{out.msg}</Out>
+      <div className="mt-1.5">
+        <RouteDemoLink to="/passkeys" label="Full demo (server verification + diagnostics)" />
+      </div>
     </div>
   );
 }
 
 function PaymentDemo() {
-  const [out, setOut] = useState('—');
-  async function check() {
-    if (!('PaymentRequest' in window)) return setOut('unsupported');
-    try {
-      const pr = new PaymentRequest(
-        [{ supportedMethods: 'basic-card' }],
-        { total: { label: 'Demo', amount: { currency: 'USD', value: '0.00' } } },
-      );
-      const canMake = await pr.canMakePayment();
-      setOut(`canMakePayment(basic-card): ${canMake}`);
-    } catch (e) { setOut((e as Error).message); }
+  // basic-card was removed from Chromium in 2023, which is why the old probe
+  // returned false on a working browser. Probe the modern URL-based methods
+  // (Google Pay test env + Apple Pay) plus the legacy probe so users see
+  // exactly what their browser does and doesn't accept. The Show sheet
+  // button opens the real OS payment UI with a $0.01 placeholder — cancel
+  // it; the demo never settles a charge.
+  type ProbeResult = { method: string; canMake: boolean | null; err?: string };
+  const [probes, setProbes] = useState<ProbeResult[]>([]);
+  const [out, setOut] = useState<{ tone: 'default' | 'ok' | 'err'; msg: string }>({
+    tone: 'default', msg: '—',
+  });
+  const supported = typeof window !== 'undefined' && 'PaymentRequest' in window;
+
+  // Methods covering the three realistic Chromium paths today plus the
+  // legacy one so the probe shows the deprecation transparently.
+  const methods: PaymentMethodData[] = [
+    {
+      supportedMethods: 'https://google.com/pay',
+      data: {
+        apiVersion: 2,
+        apiVersionMinor: 0,
+        merchantInfo: { merchantName: 'PWA Demo' },
+        allowedPaymentMethods: [{
+          type: 'CARD',
+          parameters: {
+            allowedAuthMethods: ['PAN_ONLY', 'CRYPTOGRAM_3DS'],
+            allowedCardNetworks: ['VISA', 'MASTERCARD'],
+          },
+          tokenizationSpecification: {
+            type: 'PAYMENT_GATEWAY',
+            parameters: { gateway: 'example', gatewayMerchantId: 'exampleGatewayMerchantId' },
+          },
+        }],
+      },
+    },
+    { supportedMethods: 'https://apple.com/apple-pay' },
+    { supportedMethods: 'basic-card' },
+  ];
+
+  const details: PaymentDetailsInit = {
+    total: { label: 'PWA Demo (test)', amount: { currency: 'USD', value: '0.01' } },
+    displayItems: [
+      { label: 'Demo line item', amount: { currency: 'USD', value: '0.01' } },
+    ],
+  };
+
+  async function probe() {
+    if (!supported) return setOut({ tone: 'err', msg: 'unsupported' });
+    const results: ProbeResult[] = [];
+    for (const m of methods) {
+      try {
+        const pr = new PaymentRequest([m], details);
+        const can = await pr.canMakePayment();
+        results.push({ method: m.supportedMethods, canMake: can });
+      } catch (e) {
+        results.push({ method: m.supportedMethods, canMake: null, err: (e as Error).message });
+      }
+    }
+    setProbes(results);
+    const anyOk = results.some((r) => r.canMake === true);
+    setOut({
+      tone: anyOk ? 'ok' : 'err',
+      msg: anyOk ? 'at least one method is usable — try Show sheet' : 'no payment method available on this browser/OS',
+    });
   }
+
+  async function showSheet() {
+    if (!supported) return setOut({ tone: 'err', msg: 'unsupported' });
+    try {
+      const pr = new PaymentRequest(methods, details, { requestPayerEmail: true });
+      const response = await pr.show();
+      // Demo only — never settle a real charge. We acknowledge the response
+      // so the browser dismisses the sheet cleanly.
+      await response.complete('success');
+      setOut({ tone: 'ok', msg: `paid via ${response.methodName} (demo — no real charge)` });
+    } catch (e) {
+      const msg = (e as Error).message;
+      const cancelled = /cancel|aborterror|the request has been cancelled/i.test(msg);
+      setOut({ tone: cancelled ? 'default' : 'err', msg: cancelled ? 'sheet cancelled' : msg });
+    }
+  }
+
   return (
-    <div>
-      <button onClick={check} className={btn}>Probe</button>
-      <Out>{out}</Out>
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-2">
+        <button onClick={probe} disabled={!supported} className={btn}>Probe methods</button>
+        <button onClick={showSheet} disabled={!supported} className={btnGhost}>Show sheet ($0.01 test)</button>
+      </div>
+      {probes.length > 0 && (
+        <div className="text-[10px] font-mono text-slate-400 space-y-0.5 bg-slate-950/60 border border-slate-800 rounded p-2">
+          {probes.map((p) => (
+            <div key={p.method} className="flex gap-2">
+              <span className={p.canMake ? 'text-emerald-300' : p.canMake === false ? 'text-rose-300' : 'text-amber-300'}>
+                {p.canMake === true ? '✓' : p.canMake === false ? '✗' : '!'}
+              </span>
+              <span className="truncate">{p.method}</span>
+              <span className="text-slate-500">{p.err ? `(${p.err})` : ''}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <Out tone={out.tone}>{out.msg}</Out>
     </div>
   );
 }
 
 function CredMgmtDemo() {
-  return <Out>navigator.credentials present. Try `navigator.credentials.get(...)` to read a stored credential.</Out>;
+  // Browser-managed PASSWORD credentials (the original Credential Management
+  // API — different from WebAuthn/passkeys above). Save triggers the
+  // browser's "Save password?" prompt; Auto-fill triggers the account
+  // chooser. Chromium-only: Firefox/Safari implement navigator.credentials
+  // but not PasswordCredential, so the constructor is the supported check.
+  const [username, setUsername] = useState('demo@example.com');
+  const [password, setPassword] = useState('hunter2-demo');
+  const [out, setOut] = useState<{ tone: 'default' | 'ok' | 'err'; msg: string }>({
+    tone: 'default', msg: '—',
+  });
+  // PasswordCredential is non-standard in lib.dom — narrow via globalThis.
+  type PasswordCredentialCtor = new (init: { id: string; password: string; name?: string }) => unknown;
+  const W = window as Window & { PasswordCredential?: PasswordCredentialCtor };
+  const supported = typeof window !== 'undefined' && typeof W.PasswordCredential === 'function';
+
+  async function save() {
+    if (!supported) return setOut({ tone: 'err', msg: 'PasswordCredential unsupported (Chromium only)' });
+    try {
+      const cred = new W.PasswordCredential!({ id: username, password, name: username });
+      await navigator.credentials.store(cred as Credential);
+      setOut({ tone: 'ok', msg: `stored — accept the browser prompt to confirm save for ${username}` });
+    } catch (e) {
+      setOut({ tone: 'err', msg: (e as Error).message });
+    }
+  }
+
+  async function autofill() {
+    if (!('credentials' in navigator)) return setOut({ tone: 'err', msg: 'unsupported' });
+    try {
+      // `mediation: 'optional'` shows the account chooser only when a saved
+      // credential matches this origin; 'required' forces it every time.
+      const cred = (await navigator.credentials.get({
+        password: true,
+        mediation: 'optional',
+      } as CredentialRequestOptions)) as (Credential & { id?: string; password?: string }) | null;
+      if (!cred) return setOut({ tone: 'default', msg: 'no credential picked (user dismissed or none saved)' });
+      setUsername(cred.id ?? '');
+      setPassword(cred.password ?? '');
+      setOut({ tone: 'ok', msg: `auto-filled credential for ${cred.id}` });
+    } catch (e) {
+      setOut({ tone: 'err', msg: (e as Error).message });
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="email"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          autoComplete="username"
+          placeholder="username"
+          className="flex-1 min-w-[10rem] bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs font-mono"
+        />
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          autoComplete="current-password"
+          placeholder="password"
+          className="flex-1 min-w-[10rem] bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs font-mono"
+        />
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button onClick={save} disabled={!supported || !username || !password} className={btn}>Save to browser</button>
+        <button onClick={autofill} className={btnGhost}>Auto-fill</button>
+      </div>
+      <Out tone={out.tone}>{out.msg}</Out>
+    </div>
+  );
 }
 
 function WebOTPDemo() {
@@ -973,6 +1430,7 @@ export const INLINE_DEMOS: Record<string, () => React.JSX.Element> = {
   'wake-lock': WakeLockDemo,
   'idle-detection': IdleDemo,
   'bg-sync': BgSyncDemo,
+  'bg-fetch': BgFetchDemo,
   'page-lifecycle': PageLifecycleDemo,
   // Storage & files
   'cache-storage': CacheStorageDemo,

@@ -14,6 +14,12 @@ const STANDALONE_DEMOS: Array<{ to: string; title: string; blurb: string; catego
     blurb: '3D multiplayer climb. three.js + react-three-fiber, socket.io for realtime sync.',
     category: 'Graphics & compute',
   },
+  {
+    to: '/speech-echo',
+    title: 'Speech Echo Loop',
+    blurb: 'Speak into the mic — live transcription on the left, TTS readback on the right. Pick any installed voice.',
+    category: 'Input & UX',
+  },
 ];
 
 const STATUS_DOT: Record<Support, string> = {

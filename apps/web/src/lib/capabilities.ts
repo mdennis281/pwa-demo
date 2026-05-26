@@ -417,6 +417,18 @@ export const CAPABILITIES: Capability[] = [
     check: () => supported('speechSynthesis' in window),
   },
   {
+    id: 'speech-echo',
+    name: 'Speech Echo Loop',
+    description: 'Continuous STT transcription echoed back via TTS with voice selector.',
+    category: 'Input & UX',
+    check: () =>
+      supported(
+        ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) &&
+          'speechSynthesis' in window,
+      ),
+    demo: '/speech-echo',
+  },
+  {
     id: 'contacts',
     name: 'Contact Picker',
     description: 'Let the user pick contacts.',
@@ -439,6 +451,7 @@ export const CAPABILITIES: Capability[] = [
     description: 'Hardware-backed credentials and passkeys.',
     category: 'Identity & payments',
     check: () => supported('PublicKeyCredential' in window),
+    demo: '/passkeys',
   },
   {
     id: 'webotp',
