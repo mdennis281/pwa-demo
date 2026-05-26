@@ -13,7 +13,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { Out } from '../_shared/ui';
 
+// `precision mediump float;` must match the fragment shader — otherwise
+// shared uniforms like `u_t` get mismatched precisions and the program
+// fails to link. (Vertex defaults to highp; fragment has no default.)
 const VS = `
+precision mediump float;
 attribute vec2 a_pos;
 attribute vec3 a_color;
 uniform float u_t;
