@@ -30,7 +30,13 @@ type State = {
   winH: number;
   geomEvents: number;
   displayMode: DisplayMode;
+  isSecureContext: boolean;
 };
+
+type ManifestProbe =
+  | { status: 'loading' }
+  | { status: 'ok'; url: string; displayOverride: string[] | null; raw: string }
+  | { status: 'error'; error: string };
 
 // Order matters: more-specific modes first, so currentDisplayMode() returns
 // the most informative match. 'browser' is the fallback when nothing else hit.
@@ -61,7 +67,36 @@ export default function WCOPage() {
     winH: typeof window !== 'undefined' ? window.innerHeight : 0,
     geomEvents: 0,
     displayMode: currentDisplayMode(),
+    isSecureContext: typeof window !== 'undefined' && window.isSecureContext,
   }));
+
+  // One-shot fetch of the actually-served manifest. If WCO is missing from
+  // display_override here, the deployed build is stale — autodeploy hasn't
+  // picked up the latest commit. If it IS present, the cause is environmental
+  // (secure context, install-time state, etc.).
+  const [manifest, setManifest] = useState<ManifestProbe>({ status: 'loading' });
+  useEffect(() => {
+    // Find the manifest URL the browser used. Falls back to /manifest.webmanifest.
+    const linkEl = document.querySelector<HTMLLinkElement>('link[rel="manifest"]');
+    const url = linkEl?.href ?? '/manifest.webmanifest';
+    fetch(url, { cache: 'no-store' })
+      .then(async (r) => {
+        const text = await r.text();
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        try {
+          const json = JSON.parse(text) as { display_override?: string[] };
+          setManifest({
+            status: 'ok',
+            url,
+            displayOverride: Array.isArray(json.display_override) ? json.display_override : null,
+            raw: text,
+          });
+        } catch (e) {
+          setManifest({ status: 'error', error: `parse: ${(e as Error).message}` });
+        }
+      })
+      .catch((e) => setManifest({ status: 'error', error: String((e as Error).message) }));
+  }, []);
 
   useEffect(() => {
     function update(fromGeom: boolean) {
@@ -155,19 +190,58 @@ export default function WCOPage() {
             exposed here. WCO is desktop-only and requires Chrome/Edge 105+.
           </p>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm font-mono">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm font-mono">
             <Stat label="visible" value={String(s.visible)} highlight={s.visible ? 'text-emerald-300' : 'text-slate-500'} />
             <Stat
               label="display-mode"
               value={s.displayMode}
               highlight={s.displayMode === 'window-controls-overlay' ? 'text-emerald-300' : 'text-amber-300'}
             />
+            <Stat
+              label="secure context"
+              value={String(s.isSecureContext)}
+              highlight={s.isSecureContext ? 'text-emerald-300' : 'text-rose-300'}
+            />
             <Stat label="window" value={`${s.winW} × ${s.winH}`} />
             <Stat label="titlebar rect" value={s.rect ? `${s.rect.width.toFixed(0)} × ${s.rect.height.toFixed(0)}` : '—'} />
             <Stat label="geom events" value={String(s.geomEvents)} />
           </div>
         )}
-        {supported && !s.visible && <Diagnostic mode={s.displayMode} />}
+        {supported && !s.visible && (
+          <Diagnostic
+            mode={s.displayMode}
+            isSecureContext={s.isSecureContext}
+            manifest={manifest}
+          />
+        )}
+        {manifest.status === 'ok' && (
+          <div className="border-t border-slate-800 pt-3 mt-1 text-xs space-y-1">
+            <div className="text-slate-500 text-[10px] uppercase tracking-wider">served manifest</div>
+            <div className="font-mono text-slate-400">
+              <span className="text-slate-500">url:</span> {manifest.url}
+            </div>
+            <div className="font-mono">
+              <span className="text-slate-500">display_override:</span>{' '}
+              {manifest.displayOverride
+                ? (
+                  <span className={
+                    manifest.displayOverride.includes('window-controls-overlay')
+                      ? 'text-emerald-300'
+                      : 'text-rose-300'
+                  }>
+                    [{manifest.displayOverride.map((m) => `"${m}"`).join(', ')}]
+                  </span>
+                )
+                : <span className="text-rose-300">missing</span>
+              }
+            </div>
+          </div>
+        )}
+        {manifest.status === 'error' && (
+          <p className="text-rose-300 text-xs">
+            couldn't fetch manifest: {manifest.error}
+          </p>
+        )}
       </section>
 
       {/* schematic of the current window with the titlebar rect highlighted */}
@@ -262,10 +336,69 @@ navigator.windowControlsOverlay.addEventListener('geometrychange', () => {
 
 // ─── building blocks ──────────────────────────────────────────────────────
 
-/** Picks the right "why isn't WCO active" explanation. The previous version
- *  always said "install the app" — wrong when the user already IS inside an
- *  installed standalone window. */
-function Diagnostic({ mode }: { mode: DisplayMode }) {
+/** Picks the right "why isn't WCO active" explanation by checking the most
+ *  specific signals first (manifest contents, secure-context) before falling
+ *  back to display-mode heuristics. */
+function Diagnostic({
+  mode,
+  isSecureContext,
+  manifest,
+}: {
+  mode: DisplayMode;
+  isSecureContext: boolean;
+  manifest: ManifestProbe;
+}) {
+  // 1. Hard blocker — manifest on the deployed server doesn't have WCO in its
+  // display_override at all. Autodeploy hasn't picked up the change.
+  if (manifest.status === 'ok' && manifest.displayOverride && !manifest.displayOverride.includes('window-controls-overlay')) {
+    return (
+      <div className="text-rose-300 text-xs leading-relaxed space-y-2">
+        <p>
+          <strong>The deployed manifest is missing <code className="bg-slate-950 px-1 rounded">window-controls-overlay</code> from <code className="bg-slate-950 px-1 rounded">display_override</code>.</strong>{' '}
+          The build on the server hasn't picked up the new manifest yet. Trigger an autodeploy:
+        </p>
+        <pre className="bg-slate-950 border border-slate-800 rounded p-2 text-[11px] overflow-x-auto">python -m deploy autodeploy trigger</pre>
+        <p>
+          Then reload this page (still in the browser tab) and confirm{' '}
+          <code className="bg-slate-950 px-1 rounded">display_override</code> below now lists
+          <code className="bg-slate-950 px-1 rounded">window-controls-overlay</code>. Only then uninstall &amp; reinstall.
+        </p>
+      </div>
+    );
+  }
+  // 2. Manifest declared no display_override at all — same fix as above.
+  if (manifest.status === 'ok' && !manifest.displayOverride) {
+    return (
+      <p className="text-rose-300 text-xs leading-relaxed">
+        The deployed manifest has no <code className="bg-slate-950 px-1 rounded">display_override</code> field
+        at all. The build is stale — run <code className="bg-slate-950 px-1 rounded">python -m deploy autodeploy trigger</code>
+        on the server.
+      </p>
+    );
+  }
+  // 3. Insecure context — WCO needs HTTPS (or localhost). LAN HTTP installs
+  // succeed but Chromium silently drops powerful display modes.
+  if (!isSecureContext) {
+    return (
+      <div className="text-rose-300 text-xs leading-relaxed space-y-2">
+        <p>
+          <strong>Not a secure context.</strong> You're served over plain HTTP. Chromium will let you install
+          a PWA from <code className="bg-slate-950 px-1 rounded">.local</code> mDNS names, but it silently
+          strips <code className="bg-slate-950 px-1 rounded">window-controls-overlay</code> from the override
+          list because WCO requires <code className="bg-slate-950 px-1 rounded">window.isSecureContext === true</code>.
+        </p>
+        <p>
+          <strong>Fix options:</strong>
+        </p>
+        <ul className="list-disc list-inside space-y-1 ml-2">
+          <li>Terminate HTTPS at nginx with a self-signed cert + accept the warning</li>
+          <li>Hit the dev server on <code className="bg-slate-950 px-1 rounded">localhost</code> directly (localhost is treated as secure regardless of HTTP)</li>
+          <li>For testing only: add this origin to <code className="bg-slate-950 px-1 rounded">chrome://flags/#unsafely-treat-insecure-origin-as-secure</code> on each browser</li>
+        </ul>
+      </div>
+    );
+  }
+  // 4. Plain browser tab.
   if (mode === 'browser') {
     return (
       <p className="text-amber-300 text-xs leading-relaxed">
@@ -275,23 +408,26 @@ function Diagnostic({ mode }: { mode: DisplayMode }) {
       </p>
     );
   }
+  // 5. Installed but display-mode is standalone. By this point the manifest IS
+  // serving WCO and we ARE in a secure context — so the cause is most likely
+  // install-time staleness.
   if (mode === 'standalone' || mode === 'minimal-ui') {
     return (
       <div className="text-amber-300 text-xs leading-relaxed space-y-2">
         <p>
-          You're running as an <em>installed</em> PWA (<code className="bg-slate-950 px-1 rounded">{mode}</code>),
-          but Chrome picked plain standalone mode instead of WCO from this app's{' '}
-          <code className="bg-slate-950 px-1 rounded">display_override</code> list. The display preference is
-          baked in at install time — almost always this means the PWA was installed before WCO was added to
-          the manifest.
+          You're in an installed PWA (<code className="bg-slate-950 px-1 rounded">{mode}</code>), the manifest
+          declares WCO, and you're in a secure context — so Chrome should be picking WCO. It isn't, which
+          usually means the install snapshotted an older manifest. Try:
         </p>
-        <p>
-          <strong>Fix:</strong> uninstall the PWA (<code className="bg-slate-950 px-1 rounded">⋮ menu → Uninstall</code>),
-          then reinstall from a browser tab. The fresh install will read the current manifest and pick WCO.
-        </p>
+        <ul className="list-disc list-inside space-y-1 ml-2">
+          <li>Uninstall from <code className="bg-slate-950 px-1 rounded">⋮ → Uninstall</code></li>
+          <li>In a browser tab, clear site data: <code className="bg-slate-950 px-1 rounded">⋯ → DevTools → Application → Clear storage → Clear site data</code></li>
+          <li>Hard-reload the tab and reinstall</li>
+        </ul>
       </div>
     );
   }
+  // 6. Fullscreen.
   if (mode === 'fullscreen') {
     return (
       <p className="text-amber-300 text-xs leading-relaxed">
@@ -299,8 +435,7 @@ function Diagnostic({ mode }: { mode: DisplayMode }) {
       </p>
     );
   }
-  // display-mode is window-controls-overlay but visible is false — should be
-  // rare; treat it as a transient state.
+  // 7. WCO display-mode but visible: false — usually a too-narrow window.
   return (
     <p className="text-amber-300 text-xs leading-relaxed">
       display-mode reports <code className="bg-slate-950 px-1 rounded">window-controls-overlay</code> but the

@@ -135,6 +135,7 @@ dist
 # Generated PWA assets (regen via `npm run gen:assets`)
 apps/web/public/pwa-*.png
 apps/web/public/apple-touch-icon-*.png
+apps/web/public/apple-splash-*.png
 apps/web/public/maskable-icon-*.png
 apps/web/public/favicon.ico
 
