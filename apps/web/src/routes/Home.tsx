@@ -1,35 +1,27 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router';
 import { CAPABILITIES, CATEGORIES, slugifyCategory, type Capability, type Category, type Support } from '../lib/capabilities';
-import { INLINE_DEMOS } from '../lib/demos';
 import { useCapabilityStatuses } from '../lib/useCapabilityStatuses';
 import InstallPrompt from '../components/InstallPrompt';
-
-/** Standalone routes that aren't tied to a single capability check.
- *  Surfaced as the featured demo at the top of their category. */
-const STANDALONE_DEMOS: Array<{ to: string; title: string; blurb: string; category: Category }> = [
-  {
-    to: '/game',
-    title: 'Tower Climb',
-    blurb: '3D multiplayer climb. three.js + react-three-fiber, socket.io for realtime sync.',
-    category: 'Graphics & compute',
-  },
-  {
-    to: '/speech-echo',
-    title: 'Speech Echo Loop',
-    blurb: 'Speak into the mic — live transcription on the left, TTS readback on the right. Pick any installed voice.',
-    category: 'Input & UX',
-  },
-];
+import { DEMOS, demosForCapability, demosForCategory } from '../demos/_registry';
+import { useFavorites } from '../demos/_favorites';
+import { OpenDemoLink } from '../demos/_OpenDemo';
+import { StarButton } from '../demos/_StarButton';
 
 export default function Home() {
   const statuses = useCapabilityStatuses();
+  const { favorites, toggle } = useFavorites();
 
   const totals = useMemo(() => {
     const c: Record<Support, number> = { supported: 0, partial: 0, unsupported: 0, unknown: 0 };
     for (const cap of CAPABILITIES) c[statuses[cap.id]]++;
     return c;
   }, [statuses]);
+
+  const favoriteDemos = useMemo(
+    () => DEMOS.filter((d) => favorites.has(d.id)),
+    [favorites],
+  );
 
   return (
     <div className="p-8 max-w-6xl mx-auto">
@@ -44,23 +36,12 @@ export default function Home() {
 
       <InstallPrompt />
 
-      {STANDALONE_DEMOS.length > 0 && (
+      {favoriteDemos.length > 0 && (
         <div className="mt-8">
-          <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">Featured demos</div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {STANDALONE_DEMOS.map((d) => (
-              <Link
-                key={d.to}
-                to={d.to}
-                className="block bg-gradient-to-br from-brand-600/20 to-slate-900 hover:from-brand-500/30 border border-brand-500/40 hover:border-brand-400 rounded-lg p-4 transition group"
-              >
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-amber-300 text-xs">★</span>
-                  <div className="font-semibold text-brand-100 group-hover:text-white">{d.title}</div>
-                </div>
-                <div className="text-xs text-slate-400 leading-snug">{d.blurb}</div>
-                <div className="mt-2 text-xs text-brand-300 group-hover:text-brand-200">Play now →</div>
-              </Link>
+          <div className="text-[10px] uppercase tracking-wider text-amber-300/80 mb-2">★ Favorites</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {favoriteDemos.map((d) => (
+              <FavoriteCard key={d.id} demo={d} onUnfavorite={() => toggle(d.id)} />
             ))}
           </div>
         </div>
@@ -71,7 +52,26 @@ export default function Home() {
           <CategoryCard key={cat} category={cat} statuses={statuses} />
         ))}
       </div>
+    </div>
+  );
+}
 
+function FavoriteCard({ demo, onUnfavorite }: { demo: (typeof DEMOS)[number]; onUnfavorite: () => void }) {
+  return (
+    <div className="relative">
+      <OpenDemoLink
+        demo={demo}
+        className="block bg-gradient-to-br from-amber-500/10 to-slate-900 hover:from-amber-500/20 border border-amber-500/30 hover:border-amber-400/60 rounded-lg p-4 transition group"
+      >
+        <div className="flex items-start gap-2 mb-1">
+          <div className="font-semibold text-slate-100 group-hover:text-white truncate">{demo.title}</div>
+        </div>
+        <div className="text-xs text-slate-400 leading-snug line-clamp-2">{demo.blurb}</div>
+        <div className="mt-2 text-xs text-brand-300 group-hover:text-brand-200">Open →</div>
+      </OpenDemoLink>
+      <div className="absolute top-2 right-2">
+        <StarButton on size="sm" onClick={onUnfavorite} />
+      </div>
     </div>
   );
 }
@@ -112,7 +112,8 @@ function CategoryCard({ category, statuses }: { category: Category; statuses: Re
     (acc, c) => { acc[statuses[c.id] ?? 'unknown']++; return acc; },
     { supported: 0, partial: 0, unsupported: 0, unknown: 0 } as Record<Support, number>,
   );
-  const inlineDemos = caps.filter((c) => INLINE_DEMOS[c.id]);
+  const demos = demosForCategory(category);
+  const demosWithCap = caps.filter((c) => demosForCapability(c.id).length > 0).length;
 
   return (
     <Link
@@ -132,15 +133,7 @@ function CategoryCard({ category, statuses }: { category: Category; statuses: Re
 
       <div className="mt-3">
         <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">
-          Interactive demos · {inlineDemos.length}
-        </div>
-        <div className="flex flex-wrap gap-1">
-          {caps.slice(0, 10).map((c) => (
-            <Chip key={c.id} cap={c} status={statuses[c.id] ?? 'unknown'} hasDemo={!!INLINE_DEMOS[c.id] || !!c.demo} />
-          ))}
-          {caps.length > 10 && (
-            <span className="text-[10px] text-slate-500 self-center">+{caps.length - 10} more</span>
-          )}
+          {demos.length} demo{demos.length === 1 ? '' : 's'} · {demosWithCap}/{caps.length} caps covered
         </div>
       </div>
 
@@ -152,8 +145,6 @@ function CategoryCard({ category, statuses }: { category: Category; statuses: Re
 }
 
 function SupportBar({ caps, statuses }: { caps: Capability[]; statuses: Record<string, Support> }) {
-  // Aggregate counts so the bar reads as one continuous: green → amber → red → slate
-  // (rather than one tiny segment per cap, which looked like Christmas lights).
   const buckets = caps.reduce(
     (acc, c) => { acc[statuses[c.id] ?? 'unknown']++; return acc; },
     { supported: 0, partial: 0, unsupported: 0, unknown: 0 } as Record<Support, number>,
@@ -168,23 +159,5 @@ function SupportBar({ caps, statuses }: { caps: Capability[]; statuses: Record<s
       {seg(buckets.unsupported, 'bg-rose-500',    'unsupported')}
       {seg(buckets.unknown,     'bg-slate-600',   'checking')}
     </div>
-  );
-}
-
-function Chip({ cap, status, hasDemo }: { cap: Capability; status: Support; hasDemo: boolean }) {
-  const dot =
-    status === 'supported' ? 'bg-emerald-400'
-    : status === 'partial' ? 'bg-amber-400'
-    : status === 'unsupported' ? 'bg-rose-500'
-    : 'bg-slate-500';
-  return (
-    <span
-      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] border ${
-        hasDemo ? 'border-slate-700 bg-slate-950/60' : 'border-slate-800 bg-slate-900/40 opacity-60'
-      }`}
-    >
-      <span className={`inline-block w-1.5 h-1.5 rounded-full ${dot}`} />
-      <span className="text-slate-300">{cap.name}</span>
-    </span>
   );
 }

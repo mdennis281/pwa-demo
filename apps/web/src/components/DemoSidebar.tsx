@@ -1,18 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import { NavLink, useLocation } from 'react-router';
+import { Link, NavLink, useLocation } from 'react-router';
 import { CAPABILITIES, CATEGORIES, slugifyCategory, type Capability, type Category, type Support } from '../lib/capabilities';
-import { INLINE_DEMOS } from '../lib/demos';
 import { useCapabilityStatuses } from '../lib/useCapabilityStatuses';
 
-/** Standalone demos that aren't a single capability check. Surfaced inside
- *  their category in the sidebar with a star indicator. Everything else
- *  (push, status, worker, manifest, indexed-db) is reachable via its
- *  capability row — keeping the star reserved for the only demo that
- *  isn't a per-capability page. */
-const STANDALONE: Array<{ to: string; title: string; category: Category }> = [
-  { to: '/',     title: 'Overview',   category: 'Install & PWA' },
-  { to: '/game', title: 'Tower Climb', category: 'Graphics & compute' },
-];
+/**
+ * Sidebar is pure navigation. It does NOT open demos.
+ *
+ *   - Each capability row navigates to its category page anchored at the
+ *     capability id: /category/<slug>#<cap-id>. Demos are opened from the
+ *     chip(s) under each capability row on that page.
+ *   - No favorites here either — the Home page is the quick-access surface
+ *     for those. Keeping the sidebar single-purpose (nav).
+ */
 
 const DOT: Record<Support, string> = {
   supported: 'bg-emerald-400',
@@ -21,46 +20,27 @@ const DOT: Record<Support, string> = {
   unknown: 'bg-slate-600',
 };
 
-/** Pick the best destination URL for a feature row. */
-function destinationFor(cap: Capability): string {
-  if (cap.demo) return cap.demo;
-  return `/category/${slugifyCategory(cap.category)}#${cap.id}`;
-}
-
 export default function DemoSidebar() {
   const statuses = useCapabilityStatuses();
   const [query, setQuery] = useState('');
   const location = useLocation();
 
-  // Track which categories are expanded. Default behavior:
-  //   - if URL matches /category/:cat, that one is expanded
-  //   - if URL matches a standalone demo route, that demo's category is expanded
-  //   - otherwise the current path's category (if any) is expanded
-  //   - while searching, every category with a match is expanded
   const activeCategory: Category | null = useMemo(() => {
     if (location.pathname.startsWith('/category/')) {
       const slug = location.pathname.replace('/category/', '');
       for (const c of CATEGORIES) if (slugifyCategory(c) === slug) return c;
     }
-    const sd = STANDALONE.find((d) => d.to === location.pathname && d.to !== '/');
-    if (sd) return sd.category;
-    // Auto-expand the category that owns a capability-demo route (e.g. /push
-    // belongs to Notifications). Without this, removing those routes from
-    // STANDALONE would mean their sidebar parent no longer opens automatically.
-    const cap = CAPABILITIES.find((c) => c.demo === location.pathname);
-    if (cap) return cap.category;
     return null;
   }, [location.pathname]);
 
   const [openOverrides, setOpenOverrides] = useState<Record<string, boolean>>({});
-  function toggle(cat: Category) {
+  function toggleCat(cat: Category) {
     setOpenOverrides((m) => ({ ...m, [cat]: !(m[cat] ?? cat === activeCategory) }));
   }
 
   const q = query.trim().toLowerCase();
   const isSearching = q.length > 0;
 
-  // Per-category filtered feature list
   const filteredByCat = useMemo(() => {
     const m = new Map<Category, Capability[]>();
     for (const cat of CATEGORIES) m.set(cat, []);
@@ -72,20 +52,13 @@ export default function DemoSidebar() {
     return m;
   }, [q, isSearching]);
 
-  const filteredStandalone = useMemo(() =>
-    isSearching
-      ? STANDALONE.filter((d) => d.title.toLowerCase().includes(q))
-      : STANDALONE,
-    [q, isSearching],
-  );
-
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="relative mb-3">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search features…"
+          placeholder="Search…"
           className="w-full bg-slate-950 border border-slate-800 focus:border-brand-500 focus:outline-none rounded-md pl-7 pr-7 py-1.5 text-sm placeholder-slate-600"
         />
         <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500 text-xs">⌕</span>
@@ -116,8 +89,7 @@ export default function DemoSidebar() {
 
         {CATEGORIES.map((cat) => {
           const caps = filteredByCat.get(cat)!;
-          const standalone = filteredStandalone.filter((d) => d.category === cat && d.to !== '/');
-          if (isSearching && caps.length === 0 && standalone.length === 0) return null;
+          if (isSearching && caps.length === 0) return null;
 
           const all = CAPABILITIES.filter((c) => c.category === cat);
           const supported = all.filter((c) => statuses[c.id] === 'supported').length;
@@ -130,7 +102,7 @@ export default function DemoSidebar() {
           return (
             <div key={cat}>
               <button
-                onClick={() => toggle(cat)}
+                onClick={() => toggleCat(cat)}
                 className="w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-md text-slate-200 hover:bg-slate-800 transition"
               >
                 <span className="flex items-center gap-1.5 min-w-0">
@@ -144,18 +116,11 @@ export default function DemoSidebar() {
 
               {open && (
                 <ul className="mt-0.5 mb-2 ml-3 border-l border-slate-800 pl-2 space-y-0.5">
-                  {standalone.map((d) => (
-                    <li key={d.to}>
-                      <FeatureRow to={d.to} label={d.title} featured highlight={q} />
-                    </li>
-                  ))}
                   {caps.map((cap) => (
                     <li key={cap.id}>
-                      <FeatureRow
-                        to={destinationFor(cap)}
-                        label={cap.name}
+                      <CapabilityNavRow
+                        cap={cap}
                         status={statuses[cap.id] ?? 'unknown'}
-                        hasDemo={!!INLINE_DEMOS[cap.id] || !!cap.demo}
                         highlight={q}
                       />
                     </li>
@@ -170,47 +135,30 @@ export default function DemoSidebar() {
   );
 }
 
-function FeatureRow({
-  to, label, status, hasDemo = true, featured = false, highlight,
+/** A capability link — navigates to the category page anchored at this cap.
+ *  Does NOT open demos. The user opens demos from the chip(s) on the
+ *  category page after landing. */
+function CapabilityNavRow({
+  cap, status, highlight,
 }: {
-  to: string;
-  label: string;
-  status?: Support;
-  hasDemo?: boolean;
-  featured?: boolean;
-  highlight?: string;
+  cap: Capability; status: Support; highlight: string;
 }) {
   const location = useLocation();
-  // If `to` includes a hash, require both path and hash to match exactly.
-  // Otherwise just match the path (so caps with a dedicated demo route also
-  // highlight when you're on that route).
+  const to = `/category/${slugifyCategory(cap.category)}#${cap.id}`;
   const [path, hash] = to.split('#');
-  const isActive = hash
-    ? location.pathname === path && location.hash === `#${hash}`
-    : location.pathname === path;
-
+  const isActive = location.pathname === path && location.hash === `#${hash}`;
   return (
-    <NavLink
+    <Link
       to={to}
-      className={() =>
-        `flex items-center gap-2 px-2 py-1 rounded text-xs transition ${
-          isActive ? 'bg-brand-600/25 text-brand-100' : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
-        }`
-      }
+      className={`flex items-center gap-2 px-2 py-1 rounded text-xs transition ${
+        isActive ? 'bg-brand-600/25 text-brand-100' : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
+      }`}
     >
-      {featured ? (
-        <span className="text-amber-300 text-[10px] shrink-0" title="Standalone demo page">★</span>
-      ) : (
-        <span
-          className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${
-            status ? DOT[status] : 'bg-slate-600'
-          } ${!hasDemo && status === 'supported' ? 'opacity-50' : ''}`}
-        />
-      )}
-      <span className={`truncate ${!hasDemo && !featured ? 'text-slate-500' : ''}`}>
-        {highlight ? <Highlighted text={label} q={highlight} /> : label}
+      <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${DOT[status]}`} />
+      <span className="truncate">
+        {highlight ? <Highlighted text={cap.name} q={highlight} /> : cap.name}
       </span>
-    </NavLink>
+    </Link>
   );
 }
 
@@ -228,10 +176,7 @@ function Highlighted({ text, q }: { text: string; q: string }) {
 }
 
 /** Side-effect hook: scroll a hash-targeted element into view + pulse it once.
- *  The pulse is a Web Animation (not a class toggle) so the browser tears it
- *  down automatically — rapid navigations (webgl → webgl2) can't leave the
- *  previous target stuck in the highlighted state the way classList.add /
- *  setTimeout-cleanup could when the timer was cancelled mid-flight. */
+ *  Used by Category for in-page anchored capability sections. */
 export function useHashScrollHighlight() {
   const location = useLocation();
   useEffect(() => {
@@ -240,8 +185,6 @@ export function useHashScrollHighlight() {
     const el = document.getElementById(id);
     if (!el) return;
     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    // brand-400 is #38bdf8. A growing-then-shrinking box-shadow ring reads as
-    // a single pulse without permanently altering the element's layout box.
     const anim = el.animate(
       [
         { boxShadow: '0 0 0 0 rgba(56, 189, 248, 0)' },
@@ -250,8 +193,6 @@ export function useHashScrollHighlight() {
       ],
       { duration: 900, easing: 'cubic-bezier(0.22, 0.61, 0.36, 1)' },
     );
-    // If the user navigates again before the pulse finishes, cancel this one
-    // so it doesn't keep painting on the now-stale target.
     return () => anim.cancel();
   }, [location.pathname, location.hash]);
 }

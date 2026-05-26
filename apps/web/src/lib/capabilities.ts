@@ -9,8 +9,6 @@ export type Capability = {
   check: () => Support;
   /** Optional async refinement (e.g. needs the SW registration). */
   refine?: (registration: ServiceWorkerRegistration | null) => Promise<Support>;
-  /** Optional internal demo route. */
-  demo?: string;
   /** Optional reference link (MDN, spec). */
   ref?: string;
 };
@@ -70,7 +68,6 @@ export const CAPABILITIES: Capability[] = [
     description: 'Browser-triggered "install this PWA" prompt.',
     category: 'Install & PWA',
     check: () => supported('onbeforeinstallprompt' in window),
-    demo: '/manifest',
   },
   {
     id: 'related-apps',
@@ -85,7 +82,6 @@ export const CAPABILITIES: Capability[] = [
     description: 'Customize the desktop titlebar area for installed PWAs.',
     category: 'Install & PWA',
     check: () => supported('windowControlsOverlay' in navigator),
-    demo: '/wco',
   },
   {
     id: 'launch-queue',
@@ -102,7 +98,6 @@ export const CAPABILITIES: Capability[] = [
     description: 'Show OS-level notifications.',
     category: 'Notifications',
     check: () => supported('Notification' in window),
-    demo: '/push',
   },
   {
     id: 'push',
@@ -110,7 +105,6 @@ export const CAPABILITIES: Capability[] = [
     description: 'Receive server-sent pushes even when closed.',
     category: 'Notifications',
     check: () => supported('PushManager' in window),
-    demo: '/push',
   },
   {
     id: 'badging',
@@ -180,7 +174,6 @@ export const CAPABILITIES: Capability[] = [
     description: 'Asynchronous client-side database.',
     category: 'Storage & files',
     check: () => supported('indexedDB' in window),
-    demo: '/indexed-db',
   },
   {
     id: 'cache-storage',
@@ -232,7 +225,6 @@ export const CAPABILITIES: Capability[] = [
     description: 'Full-duplex socket connections.',
     category: 'Networking',
     check: () => supported('WebSocket' in window),
-    demo: '/status',
   },
   {
     id: 'webtransport',
@@ -307,7 +299,6 @@ export const CAPABILITIES: Capability[] = [
     description: 'Accelerometer events.',
     category: 'Sensors',
     check: () => supported('DeviceMotionEvent' in window),
-    demo: '/islands',
   },
   {
     id: 'orientation',
@@ -315,7 +306,6 @@ export const CAPABILITIES: Capability[] = [
     description: 'Gyroscope-derived rotation events.',
     category: 'Sensors',
     check: () => supported('DeviceOrientationEvent' in window),
-    demo: '/islands',
   },
   {
     id: 'ambient-light',
@@ -426,7 +416,6 @@ export const CAPABILITIES: Capability[] = [
         ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) &&
           'speechSynthesis' in window,
       ),
-    demo: '/speech-echo',
   },
   {
     id: 'contacts',
@@ -451,7 +440,6 @@ export const CAPABILITIES: Capability[] = [
     description: 'Hardware-backed credentials and passkeys.',
     category: 'Identity & payments',
     check: () => supported('PublicKeyCredential' in window),
-    demo: '/passkeys',
   },
   {
     id: 'webotp',
@@ -527,7 +515,6 @@ export const CAPABILITIES: Capability[] = [
     description: 'Run scripts off the main thread.',
     category: 'Graphics & compute',
     check: () => supported('Worker' in window),
-    demo: '/worker',
   },
   {
     id: 'sab',

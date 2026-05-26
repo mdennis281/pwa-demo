@@ -3,6 +3,7 @@ import { Link, Outlet } from 'react-router';
 import { onInstallAvailability, promptInstall, getDisplayMode } from '../lib/install';
 import ConnectionBadge from './ConnectionBadge';
 import DemoSidebar from './DemoSidebar';
+import ModalHost from '../demos/_ModalHost';
 
 export default function Layout() {
   const [installable, setInstallable] = useState(false);
@@ -73,6 +74,8 @@ export default function Layout() {
       <main className="flex-1 min-w-0 bg-slate-950 pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
         <Outlet />
       </main>
+
+      <ModalHost />
     </div>
   );
 }

@@ -1,0 +1,630 @@
+import { lazy } from 'react';
+import type { DemoSpec } from './_types';
+
+/**
+ * Central registry of every demo. Source of truth for:
+ *   - sidebar navigation
+ *   - capability → demos lookup (M:N)
+ *   - route generation
+ *   - modal mounting
+ *
+ * Adding a demo:
+ *   1. Create `./<category-slug>/<demo-id>.tsx` exporting a default React component.
+ *      - modal: render body content only (no header/padding).
+ *      - page / multi-page: wrap with <DemoPage> (or skip for fullscreen demos).
+ *   2. Add an entry below with `component: lazy(() => import('./<slug>/<id>'))`.
+ *   3. Set `capabilities` to whichever capability ids the demo exercises.
+ *
+ * NAMING: title is the demo's *action*, not the technology. The capability
+ * name already says what the tech is — the demo title says what *this* demo
+ * does. e.g. capability "Vibration" → demo titled "Vibrate device" (not
+ * "Vibration"). Multi-cap demos can use a proper noun ("Tower Climb",
+ * "Floating Islands") because they exercise several techs at once.
+ */
+export const DEMOS: DemoSpec[] = [
+  // ─── Install & PWA ─────────────────────────────────────────────
+  {
+    id: 'service-worker',
+    title: 'Show registration',
+    blurb: 'Inspect the active SW registration and scope.',
+    type: 'modal',
+    category: 'Install & PWA',
+    capabilities: ['service-worker'],
+    component: lazy(() => import('./install-pwa/service-worker')),
+  },
+  {
+    id: 'related-apps',
+    title: 'Check installed',
+    blurb: 'Check whether the native or web app is already installed.',
+    type: 'modal',
+    category: 'Install & PWA',
+    capabilities: ['related-apps'],
+    component: lazy(() => import('./install-pwa/related-apps')),
+  },
+  {
+    id: 'launch-queue',
+    title: 'Detect launchQueue',
+    blurb: 'Detect launchQueue availability for file/url launch params.',
+    type: 'modal',
+    category: 'Install & PWA',
+    capabilities: ['launch-queue'],
+    component: lazy(() => import('./install-pwa/launch-queue')),
+  },
+  {
+    id: 'manifest',
+    title: 'Manifest playground',
+    blurb: 'Inspect the parsed manifest and install state.',
+    type: 'page',
+    category: 'Install & PWA',
+    capabilities: ['manifest-install'],
+    component: lazy(() => import('./install-pwa/manifest')),
+  },
+  {
+    id: 'wco',
+    title: 'Live overlay inspector',
+    blurb: 'Paint into the titlebar area on desktop PWAs.',
+    type: 'page',
+    category: 'Install & PWA',
+    capabilities: ['wco'],
+    component: lazy(() => import('./install-pwa/wco')),
+  },
+
+  // ─── Notifications ─────────────────────────────────────────────
+  {
+    id: 'notifications',
+    title: 'Request & show',
+    blurb: 'OS-level notifications via the Notifications API.',
+    type: 'modal',
+    category: 'Notifications',
+    capabilities: ['notifications'],
+    component: lazy(() => import('./notifications/notifications')),
+  },
+  {
+    id: 'badging',
+    title: 'Set & clear badge',
+    blurb: 'Set a numeric badge on the app icon.',
+    type: 'modal',
+    category: 'Notifications',
+    capabilities: ['badging'],
+    component: lazy(() => import('./notifications/badging')),
+  },
+  {
+    id: 'vibration',
+    title: 'Vibrate device',
+    blurb: 'Vibrate the device with a pattern.',
+    type: 'modal',
+    category: 'Notifications',
+    capabilities: ['vibration'],
+    component: lazy(() => import('./notifications/vibration')),
+  },
+  {
+    id: 'push',
+    title: 'Web Push',
+    blurb: 'Server-pushed notifications that arrive even when closed.',
+    type: 'page',
+    category: 'Notifications',
+    capabilities: ['push', 'notifications'],
+    component: lazy(() => import('./notifications/push')),
+  },
+
+  // ─── Background & lifecycle ────────────────────────────────────
+  {
+    id: 'wake-lock',
+    title: 'Acquire screen lock',
+    blurb: 'Prevent the screen from sleeping.',
+    type: 'modal',
+    category: 'Background & lifecycle',
+    capabilities: ['wake-lock'],
+    component: lazy(() => import('./background-lifecycle/wake-lock')),
+  },
+  {
+    id: 'idle-detection',
+    title: 'Detect idle state',
+    blurb: 'Detect when the user has gone idle.',
+    type: 'modal',
+    category: 'Background & lifecycle',
+    capabilities: ['idle-detection'],
+    component: lazy(() => import('./background-lifecycle/idle-detection')),
+  },
+  {
+    id: 'bg-sync',
+    title: 'Queue & sync',
+    blurb: 'Queue requests offline, flush when reconnected.',
+    type: 'modal',
+    category: 'Background & lifecycle',
+    capabilities: ['bg-sync'],
+    component: lazy(() => import('./background-lifecycle/bg-sync')),
+  },
+  {
+    id: 'bg-fetch',
+    title: 'Download in background',
+    blurb: 'Download large resources while the page is closed.',
+    type: 'modal',
+    category: 'Background & lifecycle',
+    capabilities: ['bg-fetch'],
+    component: lazy(() => import('./background-lifecycle/bg-fetch')),
+  },
+  {
+    id: 'page-lifecycle',
+    title: 'Log lifecycle events',
+    blurb: 'visibilitychange / freeze / resume events.',
+    type: 'modal',
+    category: 'Background & lifecycle',
+    capabilities: ['page-lifecycle'],
+    component: lazy(() => import('./background-lifecycle/page-lifecycle')),
+  },
+
+  // ─── Storage & files ───────────────────────────────────────────
+  {
+    id: 'cache-storage',
+    title: 'List caches',
+    blurb: 'Programmatic HTTP cache used by SW.',
+    type: 'modal',
+    category: 'Storage & files',
+    capabilities: ['cache-storage'],
+    component: lazy(() => import('./storage-files/cache-storage')),
+  },
+  {
+    id: 'storage-quota',
+    title: 'Estimate usage',
+    blurb: 'Read how much storage you\'re using vs quota.',
+    type: 'modal',
+    category: 'Storage & files',
+    capabilities: ['storage-quota'],
+    component: lazy(() => import('./storage-files/storage-quota')),
+  },
+  {
+    id: 'persistent-storage',
+    title: 'Request persistence',
+    blurb: 'Ask the browser not to evict your data.',
+    type: 'modal',
+    category: 'Storage & files',
+    capabilities: ['persistent-storage'],
+    component: lazy(() => import('./storage-files/persistent-storage')),
+  },
+  {
+    id: 'fs-access',
+    title: 'Open a file',
+    blurb: 'Read/write user-picked files with persistent handles.',
+    type: 'modal',
+    category: 'Storage & files',
+    capabilities: ['fs-access'],
+    component: lazy(() => import('./storage-files/fs-access')),
+  },
+  {
+    id: 'opfs',
+    title: 'Write & read sandbox',
+    blurb: 'Private sandboxed filesystem with no prompts.',
+    type: 'modal',
+    category: 'Storage & files',
+    capabilities: ['opfs'],
+    component: lazy(() => import('./storage-files/opfs')),
+  },
+  {
+    id: 'indexed-db',
+    title: 'Backend benchmark',
+    blurb: 'Benchmark in-memory vs localStorage vs IndexedDB.',
+    type: 'page',
+    category: 'Storage & files',
+    capabilities: ['indexeddb'],
+    component: lazy(() => import('./storage-files/indexed-db')),
+  },
+
+  // ─── Networking ────────────────────────────────────────────────
+  {
+    id: 'fetch',
+    title: 'GET a manifest',
+    blurb: 'Modern HTTP client probe.',
+    type: 'modal',
+    category: 'Networking',
+    capabilities: ['fetch'],
+    component: lazy(() => import('./networking/fetch')),
+  },
+  {
+    id: 'webtransport',
+    title: 'Detection',
+    blurb: 'HTTP/3-based streams and datagrams (detection only).',
+    type: 'modal',
+    category: 'Networking',
+    capabilities: ['webtransport'],
+    component: lazy(() => import('./networking/webtransport')),
+  },
+  {
+    id: 'network-info',
+    title: 'Read connection',
+    blurb: 'Read connection type and effective bandwidth.',
+    type: 'modal',
+    category: 'Networking',
+    capabilities: ['network-info'],
+    component: lazy(() => import('./networking/network-info')),
+  },
+  {
+    id: 'beacon',
+    title: 'Send a beacon',
+    blurb: 'Fire-and-forget analytics POST during unload.',
+    type: 'modal',
+    category: 'Networking',
+    capabilities: ['beacon'],
+    component: lazy(() => import('./networking/beacon')),
+  },
+  {
+    id: 'status',
+    title: 'Live clients',
+    blurb: 'Realtime websocket-connected client list.',
+    type: 'page',
+    category: 'Networking',
+    capabilities: ['websocket'],
+    component: lazy(() => import('./networking/status')),
+  },
+
+  // ─── Hardware ──────────────────────────────────────────────────
+  {
+    id: 'bluetooth',
+    title: 'Pair a BLE device',
+    blurb: 'Pair to a BLE device.',
+    type: 'modal',
+    category: 'Hardware',
+    capabilities: ['bluetooth'],
+    component: lazy(() => import('./hardware/bluetooth')),
+  },
+  {
+    id: 'usb',
+    title: 'Pair a USB device',
+    blurb: 'Pair to a USB device.',
+    type: 'modal',
+    category: 'Hardware',
+    capabilities: ['usb'],
+    component: lazy(() => import('./hardware/usb')),
+  },
+  {
+    id: 'serial',
+    title: 'Pair a serial port',
+    blurb: 'Pair to a serial / UART device.',
+    type: 'modal',
+    category: 'Hardware',
+    capabilities: ['serial'],
+    component: lazy(() => import('./hardware/serial')),
+  },
+  {
+    id: 'hid',
+    title: 'Pair an HID device',
+    blurb: 'Pair to an HID device.',
+    type: 'modal',
+    category: 'Hardware',
+    capabilities: ['hid'],
+    component: lazy(() => import('./hardware/hid')),
+  },
+  {
+    id: 'nfc',
+    title: 'Scan a tag',
+    blurb: 'Scan an NFC tag.',
+    type: 'modal',
+    category: 'Hardware',
+    capabilities: ['nfc'],
+    component: lazy(() => import('./hardware/nfc')),
+  },
+
+  // ─── Sensors ───────────────────────────────────────────────────
+  {
+    id: 'geolocation',
+    title: 'Get position',
+    blurb: 'Read the device location.',
+    type: 'modal',
+    category: 'Sensors',
+    capabilities: ['geolocation'],
+    component: lazy(() => import('./sensors/geolocation')),
+  },
+  {
+    id: 'motion',
+    title: 'Read accelerometer',
+    blurb: 'Accelerometer values via DeviceMotionEvent.',
+    type: 'modal',
+    category: 'Sensors',
+    capabilities: ['motion'],
+    component: lazy(() => import('./sensors/motion')),
+  },
+  {
+    id: 'orientation',
+    title: 'Read compass & tilt',
+    blurb: 'Compass / tilt values via DeviceOrientationEvent.',
+    type: 'modal',
+    category: 'Sensors',
+    capabilities: ['orientation'],
+    component: lazy(() => import('./sensors/orientation')),
+  },
+  {
+    id: 'ambient-light',
+    title: 'Read lux',
+    blurb: 'Read the ambient brightness in lux.',
+    type: 'modal',
+    category: 'Sensors',
+    capabilities: ['ambient-light'],
+    component: lazy(() => import('./sensors/ambient-light')),
+  },
+  {
+    id: 'battery',
+    title: 'Read battery',
+    blurb: 'Read the device battery level and charging state.',
+    type: 'modal',
+    category: 'Sensors',
+    capabilities: ['battery'],
+    component: lazy(() => import('./sensors/battery')),
+  },
+  {
+    id: 'islands',
+    title: 'Floating Islands',
+    blurb: 'Walk around a 3D scene driven by your phone\'s motion + orientation.',
+    type: 'page',
+    category: 'Sensors',
+    capabilities: ['motion', 'orientation'],
+    component: lazy(() => import('./sensors/islands')),
+  },
+
+  // ─── Media ─────────────────────────────────────────────────────
+  {
+    id: 'camera',
+    title: 'Live camera preview',
+    blurb: 'Live camera stream into a <video> element.',
+    type: 'modal',
+    category: 'Media',
+    capabilities: ['getusermedia'],
+    component: lazy(() => import('./media/camera')),
+  },
+  {
+    id: 'screen-capture',
+    title: 'Capture screen',
+    blurb: 'getDisplayMedia — capture a screen or window.',
+    type: 'modal',
+    category: 'Media',
+    capabilities: ['screen-capture'],
+    component: lazy(() => import('./media/screen-capture')),
+  },
+  {
+    id: 'media-recorder',
+    title: 'Record audio',
+    blurb: 'Record a mic stream to a blob and play it back.',
+    type: 'modal',
+    category: 'Media',
+    capabilities: ['media-recorder'],
+    component: lazy(() => import('./media/media-recorder')),
+  },
+  {
+    id: 'webrtc',
+    title: 'Create local offer',
+    blurb: 'Build a local offer (full P2P needs signaling).',
+    type: 'modal',
+    category: 'Media',
+    capabilities: ['webrtc'],
+    component: lazy(() => import('./media/webrtc')),
+  },
+  {
+    id: 'pip',
+    title: 'Open PiP',
+    blurb: 'Detach a video into a floating window.',
+    type: 'modal',
+    category: 'Media',
+    capabilities: ['pip'],
+    component: lazy(() => import('./media/pip')),
+  },
+  {
+    id: 'webcodecs',
+    title: 'Probe encoder',
+    blurb: 'Probe low-level encoder support.',
+    type: 'modal',
+    category: 'Media',
+    capabilities: ['webcodecs'],
+    component: lazy(() => import('./media/webcodecs')),
+  },
+
+  // ─── Input & UX ────────────────────────────────────────────────
+  {
+    id: 'web-share',
+    title: 'Open share sheet',
+    blurb: 'Trigger the OS share sheet.',
+    type: 'modal',
+    category: 'Input & UX',
+    capabilities: ['web-share'],
+    component: lazy(() => import('./input-ux/web-share')),
+  },
+  {
+    id: 'clipboard',
+    title: 'Copy & paste',
+    blurb: 'Read and write the clipboard.',
+    type: 'modal',
+    category: 'Input & UX',
+    capabilities: ['clipboard'],
+    component: lazy(() => import('./input-ux/clipboard')),
+  },
+  {
+    id: 'gamepad',
+    title: 'Live controller state',
+    blurb: 'Read controller input.',
+    type: 'modal',
+    category: 'Input & UX',
+    capabilities: ['gamepad'],
+    component: lazy(() => import('./input-ux/gamepad')),
+  },
+  {
+    id: 'speech-rec',
+    title: 'Listen & transcribe',
+    blurb: 'Browser-native STT (Chrome/Edge).',
+    type: 'modal',
+    category: 'Input & UX',
+    capabilities: ['speech-rec'],
+    component: lazy(() => import('./input-ux/speech-rec')),
+  },
+  {
+    id: 'speech-syn',
+    title: 'Speak text',
+    blurb: 'Browser-native TTS.',
+    type: 'modal',
+    category: 'Input & UX',
+    capabilities: ['speech-syn'],
+    component: lazy(() => import('./input-ux/speech-syn')),
+  },
+  {
+    id: 'speech-echo',
+    title: 'Speech Echo Loop',
+    blurb: 'Live transcription on the left, TTS readback on the right.',
+    type: 'page',
+    category: 'Input & UX',
+    capabilities: ['speech-rec', 'speech-syn', 'speech-echo'],
+    component: lazy(() => import('./input-ux/speech-echo')),
+  },
+  {
+    id: 'contacts',
+    title: 'Pick contacts',
+    blurb: 'Let the user pick contacts.',
+    type: 'modal',
+    category: 'Input & UX',
+    capabilities: ['contacts'],
+    component: lazy(() => import('./input-ux/contacts')),
+  },
+  {
+    id: 'eyedropper',
+    title: 'Pick a color',
+    blurb: 'OS-level color picker.',
+    type: 'modal',
+    category: 'Input & UX',
+    capabilities: ['eyedropper'],
+    component: lazy(() => import('./input-ux/eyedropper')),
+  },
+
+  // ─── Identity & payments ───────────────────────────────────────
+  {
+    id: 'webauthn',
+    title: 'Quick register & sign-in',
+    blurb: 'Self-contained passkey register & sign-in demo.',
+    type: 'modal',
+    category: 'Identity & payments',
+    capabilities: ['webauthn'],
+    component: lazy(() => import('./identity-payments/webauthn')),
+  },
+  {
+    id: 'passkeys',
+    title: 'Full diagnostic',
+    blurb: 'Server-verified WebAuthn with diagnostics.',
+    type: 'page',
+    category: 'Identity & payments',
+    capabilities: ['webauthn'],
+    component: lazy(() => import('./identity-payments/passkeys')),
+  },
+  {
+    id: 'webotp',
+    title: 'Detection (Android only)',
+    blurb: 'Auto-fill SMS one-time codes (Android only).',
+    type: 'modal',
+    category: 'Identity & payments',
+    capabilities: ['webotp'],
+    component: lazy(() => import('./identity-payments/webotp')),
+  },
+  {
+    id: 'cred-mgmt',
+    title: 'Save & auto-fill',
+    blurb: 'Programmatic password storage (Chromium).',
+    type: 'modal',
+    category: 'Identity & payments',
+    capabilities: ['cred-mgmt'],
+    component: lazy(() => import('./identity-payments/cred-mgmt')),
+  },
+  {
+    id: 'payment-request',
+    title: 'Probe & show sheet',
+    blurb: 'Browser-mediated payments. Shows the real sheet — cancel it.',
+    type: 'modal',
+    category: 'Identity & payments',
+    capabilities: ['payment-request'],
+    component: lazy(() => import('./identity-payments/payment-request')),
+  },
+
+  // ─── Graphics & compute ────────────────────────────────────────
+  {
+    id: 'webgl',
+    title: 'Animated triangle',
+    blurb: 'Shader-driven rotating triangle with time-pulsed color.',
+    type: 'modal',
+    category: 'Graphics & compute',
+    capabilities: ['webgl'],
+    component: lazy(() => import('./graphics-compute/webgl')),
+  },
+  {
+    id: 'webgl2',
+    title: 'Instanced rendering',
+    blurb: '200 rotating quads in a single drawArraysInstanced call.',
+    type: 'modal',
+    category: 'Graphics & compute',
+    capabilities: ['webgl2'],
+    component: lazy(() => import('./graphics-compute/webgl2')),
+  },
+  {
+    id: 'webgpu',
+    title: 'Request adapter',
+    blurb: 'Request a GPU adapter and device.',
+    type: 'modal',
+    category: 'Graphics & compute',
+    capabilities: ['webgpu'],
+    component: lazy(() => import('./graphics-compute/webgpu')),
+  },
+  {
+    id: 'offscreen',
+    title: 'Render off-main',
+    blurb: 'Render to a canvas off the main thread.',
+    type: 'modal',
+    category: 'Graphics & compute',
+    capabilities: ['offscreen'],
+    component: lazy(() => import('./graphics-compute/offscreen')),
+  },
+  {
+    id: 'wasm',
+    title: 'Run a module',
+    blurb: 'Instantiate a tiny hand-built module.',
+    type: 'modal',
+    category: 'Graphics & compute',
+    capabilities: ['wasm'],
+    component: lazy(() => import('./graphics-compute/wasm')),
+  },
+  {
+    id: 'sab',
+    title: 'Check isolation',
+    blurb: 'Check cross-origin isolation and SAB availability.',
+    type: 'modal',
+    category: 'Graphics & compute',
+    capabilities: ['sab'],
+    component: lazy(() => import('./graphics-compute/sab')),
+  },
+  {
+    id: 'worker',
+    title: 'Sieve off-thread',
+    blurb: 'Run a heavy sieve off-thread while a flow field animates.',
+    type: 'page',
+    category: 'Graphics & compute',
+    capabilities: ['workers'],
+    component: lazy(() => import('./graphics-compute/worker')),
+  },
+  {
+    id: 'tower-climb',
+    title: 'Tower Climb',
+    blurb: '3D multiplayer climb — three.js + socket.io.',
+    type: 'multi-page',
+    category: 'Graphics & compute',
+    capabilities: ['webgl', 'webgl2', 'websocket', 'gamepad'],
+    component: lazy(() => import('./graphics-compute/tower-climb')),
+  },
+];
+
+/** Index for fast lookup. */
+const BY_ID = new Map(DEMOS.map((d) => [d.id, d]));
+
+export function demoById(id: string): DemoSpec | undefined {
+  return BY_ID.get(id);
+}
+
+/** Returns every demo that exercises the given capability. M:N lookup. */
+export function demosForCapability(capId: string): DemoSpec[] {
+  return DEMOS.filter((d) => d.capabilities.includes(capId));
+}
+
+/** Returns every demo whose primary category matches. */
+export function demosForCategory(category: DemoSpec['category']): DemoSpec[] {
+  return DEMOS.filter((d) => d.category === category);
+}
