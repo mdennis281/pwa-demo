@@ -49,16 +49,22 @@ export default function ConnectionBadge() {
 
   const networkOk = online && !fakeOffline;
 
+  // Both rows wear identical padding/rounding so the network row being a
+  // hover-button doesn't shift the ws row's alignment. Only the network row
+  // gets the hover/cursor affordance.
   return (
-    <div className="text-xs space-y-1">
+    <div className="text-xs">
       <button
+        type="button"
         onClick={toggleFakeOffline}
         className="w-full text-left px-2 py-1 rounded hover:bg-slate-800 transition"
         title="Click to toggle offline mode for Background Sync demo"
       >
         <Row label="network" ok={networkOk} okLabel={fakeOffline ? 'offline (fake)' : 'online'} badLabel="offline" />
       </button>
-      <Row label="ws" ok={wsConnected} okLabel="connected" badLabel="disconnected" />
+      <div className="px-2 py-1 rounded">
+        <Row label="ws" ok={wsConnected} okLabel="connected" badLabel="disconnected" />
+      </div>
     </div>
   );
 }
