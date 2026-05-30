@@ -46,10 +46,12 @@ jobs:
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
+      # Don't pass project_id to setup-gcloud — that triggers a
+      # `gcloud config set project` which calls resourcemanager.projects.get
+      # and would require roles/browser on the SA. Each gcloud call below
+      # takes --project explicitly instead.
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v2
-        with:
-          project_id: ${{ secrets.GCP_PROJECT_ID }}
 
       - name: Submit Cloud Build (build → push → deploy)
         run: |
