@@ -3,14 +3,14 @@
 # via `gcloud builds submit --config=cloudbuild.yaml`.
 
 substitutions:
-  # us-south1 (Dallas) — closest GCP region to Houston. Cloud Run Domain
-  # Mappings aren't supported here, so the custom domain (yesweb.app) is
-  # fronted by Cloudflare instead of Cloud Run's native mapping.
-  _REGION: us-south1
+  # us-central1 (Iowa) — moved from us-south1 because Cloud Run Domain
+  # Mappings (needed for yesweb.app native HTTPS) aren't enabled in
+  # us-south1. ~20ms additional latency from Houston is imperceptible.
+  _REGION: us-central1
   _REPO: pwa-demo
   _SERVICE: pwa-demo
   _RUNTIME_SA: pwa-demo-run@yesweb-497913.iam.gserviceaccount.com
-  _SQL_INSTANCE: yesweb-497913:us-south1:pwa-demo-pg
+  _SQL_INSTANCE: yesweb-497913:us-central1:yesweb-db
 
 options:
   logging: CLOUD_LOGGING_ONLY
