@@ -51,14 +51,14 @@ export default function ModalHost() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/70 backdrop-blur-sm p-0 sm:p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-3 sm:p-6"
       onClick={close}
       role="dialog"
       aria-modal="true"
       aria-label={demo.title}
     >
       <div
-        className="w-full sm:max-w-xl max-h-[90vh] flex flex-col bg-slate-900 border border-slate-800 sm:rounded-lg shadow-2xl"
+        className="w-full sm:max-w-xl max-h-[90vh] flex flex-col bg-slate-900 border border-slate-800 rounded-lg shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-start gap-3 px-4 py-3 border-b border-slate-800">
