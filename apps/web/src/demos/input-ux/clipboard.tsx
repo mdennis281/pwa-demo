@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Btn, Out } from '../_shared/ui';
 
 export default function ClipboardDemo() {
-  const [text, setText] = useState('Hello from the PWA Demo · ' + new Date().toLocaleTimeString());
+  const [text, setText] = useState('Hello from YesWeb · ' + new Date().toLocaleTimeString());
   const [read, setRead] = useState<string>('');
   const [out, setOut] = useState('—');
   async function write() {

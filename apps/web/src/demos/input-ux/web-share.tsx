@@ -6,7 +6,7 @@ export default function ShareDemo() {
   async function go() {
     if (typeof navigator.share !== 'function') return setOut('unsupported');
     try {
-      await navigator.share({ title: 'PWA Demo', text: 'Check out what the web can do', url: location.href });
+      await navigator.share({ title: 'YesWeb', text: 'Check out what the web can do', url: location.href });
       setOut('shared');
     } catch (e) {
       setOut((e as Error).message);

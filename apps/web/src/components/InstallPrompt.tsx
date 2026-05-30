@@ -198,7 +198,7 @@ export default function InstallPrompt() {
   }
 
   const isOpenPhase = phase === 'installed-elsewhere' || phase === 'maybe-installed';
-  const title = isOpenPhase ? 'PWA Demo is installed' : 'Install PWA Demo';
+  const title = isOpenPhase ? 'YesWeb is installed' : 'Install YesWeb';
 
   return (
     <section
@@ -243,7 +243,7 @@ export default function InstallPrompt() {
 
           {phase === 'maybe-installed' && (
             <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-              Looks like PWA Demo is already installed on this device — your browser
+              Looks like YesWeb is already installed on this device — your browser
               didn't offer the install prompt, which usually means it's installed.
               <span className="block text-slate-500 mt-1">
                 Not installed?{' '}

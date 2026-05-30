@@ -23,7 +23,7 @@ export default function NotificationsDemo() {
       setOut('permission needed');
       return;
     }
-    new Notification('Hello from the PWA Demo', {
+    new Notification('Hello from YesWeb', {
       body: 'Fired at ' + new Date().toLocaleTimeString(),
     });
     setOut('shown');

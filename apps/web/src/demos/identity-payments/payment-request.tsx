@@ -23,7 +23,7 @@ export default function PaymentDemo() {
       data: {
         apiVersion: 2,
         apiVersionMinor: 0,
-        merchantInfo: { merchantName: 'PWA Demo' },
+        merchantInfo: { merchantName: 'YesWeb' },
         allowedPaymentMethods: [{
           type: 'CARD',
           parameters: {
@@ -42,7 +42,7 @@ export default function PaymentDemo() {
   ];
 
   const details: PaymentDetailsInit = {
-    total: { label: 'PWA Demo (test)', amount: { currency: 'USD', value: '0.01' } },
+    total: { label: 'YesWeb (test)', amount: { currency: 'USD', value: '0.01' } },
     displayItems: [
       { label: 'Demo line item', amount: { currency: 'USD', value: '0.01' } },
     ],

@@ -33,7 +33,7 @@ router.post('/unsubscribe', (req, res) => {
 
 function buildPayload(body: Record<string, unknown> | undefined): PushPayload {
   return {
-    title: (body?.title as string | undefined) ?? 'Hello from PWA Demo',
+    title: (body?.title as string | undefined) ?? 'Hello from YesWeb',
     body: (body?.body as string | undefined) ?? 'This notification was delivered via Web Push.',
     url: (body?.url as string | undefined) ?? '/push',
   };

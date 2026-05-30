@@ -26,7 +26,7 @@ export default function Layout() {
         <Link to="/" className="flex items-center gap-2" onClick={() => setMobileOpen(false)}>
           <img src="/logo.svg" alt="" className="w-7 h-7" />
           <div>
-            <div className="font-semibold leading-tight text-sm">PWA Demo</div>
+            <div className="font-semibold leading-tight text-sm">YesWeb</div>
             <div className="text-[10px] text-slate-500">{displayMode}</div>
           </div>
         </Link>
@@ -49,7 +49,7 @@ export default function Layout() {
         <Link to="/" className="hidden md:flex items-center gap-2" onClick={() => setMobileOpen(false)}>
           <img src="/logo.svg" alt="" className="w-8 h-8" />
           <div>
-            <div className="font-semibold leading-tight">PWA Demo</div>
+            <div className="font-semibold leading-tight">YesWeb</div>
             <div className="text-xs text-slate-500">{displayMode}</div>
           </div>
         </Link>

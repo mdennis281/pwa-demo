@@ -25,7 +25,7 @@ export default function Home() {
 
   return (
     <div className="p-8 max-w-6xl mx-auto">
-      <h1 className="text-3xl font-bold mb-2">PWA Demo</h1>
+      <h1 className="text-3xl font-bold mb-2">YesWeb</h1>
       <p className="text-slate-400 mb-1">
         Every web platform capability we cover, grouped by category. Each tile counts what this
         browser actually supports — click in to try a live demo of each.

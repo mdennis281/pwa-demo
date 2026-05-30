@@ -20,7 +20,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
 const OUT_DIR = path.join(REPO_ROOT, 'apps/web/public/screenshots');
 
-const APP_NAME = 'PWA Demo';
+const APP_NAME = 'YesWeb';
 const TAGLINE = 'Modern web platform capabilities, in one place.';
 
 /** Hand-crafted branded screenshot. Mirrors the logo.svg palette so the

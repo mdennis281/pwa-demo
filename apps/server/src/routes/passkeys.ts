@@ -220,7 +220,7 @@ router.post('/challenge', (req, res) => {
       sessionId,
       options: {
         challenge,
-        rp: { name: 'PWA Demo', id: rpId },
+        rp: { name: 'YesWeb', id: rpId },
         user: { id: Buffer.from(userId).toString('base64url'), name: userId, displayName: userId },
         pubKeyCredParams: [
           { type: 'public-key', alg: -7 },

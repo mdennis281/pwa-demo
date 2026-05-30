@@ -22,8 +22,8 @@ export default defineConfig({
         navigateFallback: 'index.html',
       },
       manifest: {
-        name: 'PWA Demo',
-        short_name: 'PWADemo',
+        name: 'YesWeb',
+        short_name: 'YesWeb',
         description: 'A demo of modern PWA capabilities — service workers, push, websockets, web workers, install UX.',
         id: '/',
         start_url: '/',
@@ -63,9 +63,9 @@ export default defineConfig({
         // real app screenshots whenever convenient — no manifest change needed.
         screenshots: [
           { src: '/screenshots/screenshot-wide.png',   sizes: '1280x720',  type: 'image/png',
-            form_factor: 'wide',   label: 'PWA Demo on desktop' },
+            form_factor: 'wide',   label: 'YesWeb on desktop' },
           { src: '/screenshots/screenshot-narrow.png', sizes: '720x1280',  type: 'image/png',
-            form_factor: 'narrow', label: 'PWA Demo on mobile' },
+            form_factor: 'narrow', label: 'YesWeb on mobile' },
         ],
         protocol_handlers: [{ protocol: 'web+pwademo', url: '/?proto=%s' }],
         launch_handler: { client_mode: ['navigate-existing', 'auto'] },

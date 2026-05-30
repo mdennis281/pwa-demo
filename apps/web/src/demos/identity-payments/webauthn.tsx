@@ -28,7 +28,7 @@ export default function WebAuthnDemo() {
       const cred = (await navigator.credentials.create({
         publicKey: {
           challenge,
-          rp: { name: 'PWA Demo', id: location.hostname },
+          rp: { name: 'YesWeb', id: location.hostname },
           user: { id: userId, name: username, displayName: username },
           // ES256 + RS256 cover virtually every authenticator in the wild.
           pubKeyCredParams: [

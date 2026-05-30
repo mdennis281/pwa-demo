@@ -37,7 +37,7 @@ registerRoute(
 
 self.addEventListener('push', (event) => {
   const data = event.data ? safeJson(event.data) : {};
-  const title = (data.title as string | undefined) ?? 'PWA Demo';
+  const title = (data.title as string | undefined) ?? 'YesWeb';
   const body = (data.body as string | undefined) ?? '';
   const url = (data.url as string | undefined) ?? '/';
   // Run both branches under waitUntil so the SW stays alive long enough for

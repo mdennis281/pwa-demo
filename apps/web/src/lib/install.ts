@@ -229,7 +229,7 @@ export function detectInstallContext(): InstallContext {
       label: 'Chrome on desktop',
       steps: [
         'Click the install icon (⊕ or a monitor with a down-arrow) on the right of the address bar.',
-        'Or open the menu (⋮) → "Install PWA Demo…".',
+        'Or open the menu (⋮) → "Install YesWeb…".',
         'Confirm "Install".',
       ],
     };
