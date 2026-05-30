@@ -59,13 +59,13 @@ jobs:
             --project="${{ secrets.GCP_PROJECT_ID }}" \
             --config=cloudbuild.yaml \
             --substitutions=SHORT_SHA="${GITHUB_SHA::7}" \
-            --region=us-south1 \
+            --region=us-central1 \
             .
 
       - name: Print Cloud Run URL
         run: |
           URL=$(gcloud run services describe pwa-demo \
-            --region=us-south1 \
+            --region=us-central1 \
             --project="${{ secrets.GCP_PROJECT_ID }}" \
             --format='value(status.url)')
           echo "Deployed to: $URL"
