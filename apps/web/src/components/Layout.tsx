@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Link, Outlet } from 'react-router';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Link, Outlet, useLocation } from 'react-router';
 import { onInstallAvailability, promptInstall, getDisplayMode } from '../lib/install';
 import ConnectionBadge from './ConnectionBadge';
 import DemoSidebar from './DemoSidebar';
@@ -9,6 +9,9 @@ export default function Layout() {
   const [installable, setInstallable] = useState(false);
   const [displayMode, setDisplayMode] = useState(getDisplayMode());
   const [mobileOpen, setMobileOpen] = useState(false);
+  const headerRef = useRef<HTMLElement>(null);
+  const [headerH, setHeaderH] = useState(0);
+  const location = useLocation();
 
   useEffect(() => onInstallAvailability(setInstallable), []);
 
@@ -17,12 +20,41 @@ export default function Layout() {
     return () => window.clearInterval(id);
   }, []);
 
+  // Measure the sticky mobile header so the open menu can dock flush beneath
+  // it as a fixed overlay (independent of page scroll). Re-measures on resize
+  // and orientation change since the safe-area inset can shift the height.
+  useLayoutEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const measure = () => setHeaderH(el.getBoundingClientRect().height);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Close the mobile menu whenever the route changes (covers any navigation
+  // path, including in-page anchors from the sidebar).
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [location.pathname, location.hash]);
+
+  // Lock background scroll while the full-height mobile overlay is open.
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [mobileOpen]);
+
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-slate-900 md:bg-transparent">
       {/* Mobile top bar — pt-safe pushes content below the notch/rounded
           corner in PWA mode (viewport-fit=cover); the slate-900 bg fills
           the safe area so it doesn't look like a gap. */}
-      <header className="md:hidden sticky top-0 z-30 flex items-center justify-between bg-slate-900 border-b border-slate-800 px-4 py-3 pt-[max(env(safe-area-inset-top),0.75rem)] pl-[max(env(safe-area-inset-left),1rem)] pr-[max(env(safe-area-inset-right),1rem)]">
+      <header ref={headerRef} className="md:hidden sticky top-0 z-30 flex items-center justify-between bg-slate-900 border-b border-slate-800 px-4 py-3 pt-[max(env(safe-area-inset-top),0.75rem)] pl-[max(env(safe-area-inset-left),1rem)] pr-[max(env(safe-area-inset-right),1rem)]">
         <Link to="/" className="flex items-center gap-2" onClick={() => setMobileOpen(false)}>
           <img src="/logo.svg" alt="" className="w-7 h-7" />
           <div>
@@ -42,9 +74,10 @@ export default function Layout() {
 
       <aside
         id="demo-sidebar"
+        style={mobileOpen ? { top: headerH } : undefined}
         className={`${
-          mobileOpen ? 'flex' : 'hidden'
-        } md:flex md:w-72 md:min-h-screen md:sticky md:top-0 md:max-h-screen bg-slate-900 border-r border-slate-800 p-4 pb-[max(env(safe-area-inset-bottom),1rem)] pl-[max(env(safe-area-inset-left),1rem)] pr-[max(env(safe-area-inset-right),1rem)] md:pb-4 md:pl-4 md:pr-4 flex-col gap-3`}
+          mobileOpen ? 'fixed inset-x-0 bottom-0 z-20 flex' : 'hidden'
+        } md:static md:inset-auto md:z-auto md:flex md:w-72 md:min-h-screen md:sticky md:top-0 md:max-h-screen bg-slate-900 border-r border-slate-800 p-4 pb-[max(env(safe-area-inset-bottom),1rem)] pl-[max(env(safe-area-inset-left),1rem)] pr-[max(env(safe-area-inset-right),1rem)] md:pb-4 md:pl-4 md:pr-4 flex-col gap-3`}
       >
         <Link to="/" className="hidden md:flex items-center gap-2" onClick={() => setMobileOpen(false)}>
           <img src="/logo.svg" alt="" className="w-8 h-8" />
@@ -54,7 +87,7 @@ export default function Layout() {
           </div>
         </Link>
 
-        <div className="flex-1 min-h-0" onClick={() => setMobileOpen(false)}>
+        <div className="flex-1 min-h-0">
           <DemoSidebar />
         </div>
 

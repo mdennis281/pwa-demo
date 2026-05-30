@@ -115,6 +115,15 @@ export default function DemoSidebar() {
               </button>
 
               {open && (
+                <Link
+                  to={`/category/${slugifyCategory(cat)}`}
+                  className="ml-7 mt-0.5 inline-block px-2 py-0.5 rounded text-[11px] text-slate-500 hover:text-brand-200 hover:bg-slate-800/70 transition"
+                >
+                  Open category →
+                </Link>
+              )}
+
+              {open && (
                 <ul className="mt-0.5 mb-2 ml-3 border-l border-slate-800 pl-2 space-y-0.5">
                   {caps.map((cap) => (
                     <li key={cap.id}>
