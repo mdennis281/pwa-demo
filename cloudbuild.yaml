@@ -3,6 +3,9 @@
 # via `gcloud builds submit --config=cloudbuild.yaml`.
 
 substitutions:
+  # us-south1 (Dallas) — closest GCP region to Houston. Cloud Run Domain
+  # Mappings aren't supported here, so the custom domain (yesweb.app) is
+  # fronted by Cloudflare instead of Cloud Run's native mapping.
   _REGION: us-south1
   _REPO: pwa-demo
   _SERVICE: pwa-demo
