@@ -1,0 +1,70 @@
+# Auto-deploy to Cloud Run on every push to main.
+#
+# How it works:
+#   1. Auths to GCP via the `pwa-demo-gha` service-account JSON stored in the
+#      GCP_SA_KEY secret.
+#   2. Submits cloudbuild.yaml to Cloud Build, which builds the Docker image,
+#      pushes it to Artifact Registry, and deploys the new revision to Cloud
+#      Run. All deploy logic lives in cloudbuild.yaml so the manual
+#      `gcloud builds submit` path and CI use the same recipe.
+#
+# Manual trigger: GitHub UI -> Actions -> deploy -> Run workflow.
+
+name: deploy
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '.planning/**'
+      - '**/*.md'
+      - '.gitignore'
+      - 'LICENSE'
+      - 'docker-compose.yml'
+      - 'scripts/**'
+  workflow_dispatch:
+
+concurrency:
+  # Cancel any in-flight deploy when a newer commit lands on main — no point
+  # finishing yesterday's deploy when a newer image is on its way.
+  group: deploy-main
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Auth to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Submit Cloud Build (build → push → deploy)
+        run: |
+          gcloud builds submit \
+            --project="${{ secrets.GCP_PROJECT_ID }}" \
+            --config=cloudbuild.yaml \
+            --substitutions=SHORT_SHA="${GITHUB_SHA::7}" \
+            --region=us-south1 \
+            .
+
+      - name: Print Cloud Run URL
+        run: |
+          URL=$(gcloud run services describe pwa-demo \
+            --region=us-south1 \
+            --project="${{ secrets.GCP_PROJECT_ID }}" \
+            --format='value(status.url)')
+          echo "Deployed to: $URL"
+          echo "SERVICE_URL=$URL" >> "$GITHUB_OUTPUT"

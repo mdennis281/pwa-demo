@@ -1,0 +1,63 @@
+# Keep the build context lean — Cloud Build uploads this whole thing.
+# Match .gitignore + GSD planning + generated outputs.
+
+# Node
+**/node_modules
+**/dist
+**/.vite
+**/coverage
+
+# Env / secrets — never inside the image, runtime injects via Secret Manager
+.env
+.env.*
+!.env.example
+
+# Logs, scratch
+**/*.log
+npm-debug.log*
+yarn-debug.log*
+.pnpm-debug.log*
+.cache
+.eslintcache
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea
+.vscode
+
+# Repo-local tooling not needed for runtime
+.planning
+.gsd
+.claude
+deploy
+scripts
+docker-compose.yml
+README.md
+LICENSE
+*.md
+!apps/server/**/*.md
+!apps/web/**/*.md
+
+# Build cache / artifacts that should be regenerated inside the image
+apps/web/dist
+apps/web/dev-dist
+apps/server/dist
+packages/shared/dist
+
+# Heavy generated PWA assets — these live in apps/web/public and need to ship,
+# DON'T ignore that. Only ignore intermediate generator scratch.
+.assets-cache
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Test load harness ships separately. Keep its package.json so npm workspaces
+# stay consistent during install, but drop its source — nothing in the image
+# needs it at runtime.
+apps/bots/src
+apps/bots/dist
+apps/bots/tsconfig.json
+apps/bots/node_modules
