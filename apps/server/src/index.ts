@@ -16,6 +16,36 @@ import passkeysRoute from './routes/passkeys.js';
 webpush.setVapidDetails(env.VAPID_SUBJECT, env.VAPID_PUBLIC_KEY, env.VAPID_PRIVATE_KEY);
 
 const app = express();
+// Cloud Run sits behind a proxy, so trust X-Forwarded-* so req.protocol /
+// req.hostname report the original client values (used by the canonical-
+// host redirect below).
+app.set('trust proxy', true);
+
+// Canonical-host redirect: any request to a non-canonical hostname (today:
+// www.yesweb.app) gets a 301 to the canonical host with path + query
+// preserved. CANONICAL_HOST is read from env so prod, staging, and any
+// future domain swap can configure it without code changes. If unset, the
+// middleware is a no-op — local dev hits localhost which is exempt anyway.
+const canonicalHost = process.env.CANONICAL_HOST?.toLowerCase();
+if (canonicalHost) {
+  app.use((req, res, next) => {
+    const host = (req.headers.host ?? '').toLowerCase();
+    // Strip an optional :port (Cloud Run won't send one but other proxies might).
+    const hostOnly = host.split(':')[0];
+    // Localhost / private IPs are dev/LAN traffic — never redirect those.
+    if (
+      hostOnly === canonicalHost ||
+      hostOnly === 'localhost' ||
+      hostOnly.endsWith('.localhost') ||
+      /^\d+\.\d+\.\d+\.\d+$/.test(hostOnly) ||
+      hostOnly.endsWith('.run.app')
+    ) {
+      return next();
+    }
+    res.redirect(301, `https://${canonicalHost}${req.originalUrl}`);
+  });
+}
+
 // Dev/demo mode: accept connections from any origin so other devices on
 // the LAN (phones, tablets) can hit the API.
 app.use(cors({ origin: true }));

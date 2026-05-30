@@ -73,7 +73,10 @@ steps:
       - --max-instances=3
       - --timeout=3600
       - --session-affinity
-      - --set-env-vars=NODE_ENV=production,WEB_ORIGIN=https://${_SERVICE}-356003928918.${_REGION}.run.app
+      # CANONICAL_HOST is read by an Express middleware that 301-redirects any
+      # non-canonical hostname (e.g. www.yesweb.app, *.run.app) to https://yesweb.app.
+      # Drop this var or set it to "" to disable the redirect.
+      - --set-env-vars=NODE_ENV=production,WEB_ORIGIN=https://${_SERVICE}-356003928918.${_REGION}.run.app,CANONICAL_HOST=yesweb.app
       - --set-secrets=VAPID_PUBLIC_KEY=VAPID_PUBLIC_KEY:latest,VAPID_PRIVATE_KEY=VAPID_PRIVATE_KEY:latest,VAPID_SUBJECT=VAPID_SUBJECT:latest,ADMIN_TOKEN=ADMIN_TOKEN:latest,DATABASE_URL=DATABASE_URL:latest
 
 images:
