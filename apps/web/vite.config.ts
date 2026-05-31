@@ -67,7 +67,7 @@ export default defineConfig(({ command }) => ({
       manifest: {
         name: 'YesWeb',
         short_name: 'YesWeb',
-        description: 'A demo of modern PWA capabilities — service workers, push, websockets, web workers, install UX.',
+        description: 'See why the answer might be "Yes, Web."',
         id: '/',
         start_url: '/',
         scope: '/',

@@ -1,8 +1,9 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { Navigate, Route, Routes } from 'react-router';
 import Layout from './components/Layout';
 import { DEMOS } from './demos/_registry';
 import { pagePathFor } from './demos/_types';
+import { holdSplashForRoute } from './lib/splash';
 
 const Home = lazy(() => import('./routes/Home'));
 const Category = lazy(() => import('./routes/Category'));
@@ -68,6 +69,10 @@ export default function App() {
 }
 
 function Loading() {
+  // Hold the inline splash (index.html) up while this lazy chunk resolves, so
+  // its fade-out reveals real content instead of this bare fallback. Only the
+  // initial load does anything — later navigations are a no-op (splash gone).
+  useEffect(() => holdSplashForRoute(), []);
   return <div className="p-8 text-slate-400">loading…</div>;
 }
 

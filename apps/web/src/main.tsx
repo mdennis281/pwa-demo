@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router';
 import App from './App';
 import { startPwa } from './lib/pwa';
 import { applyEnvBranding } from './lib/env';
+import { armSplashDismiss } from './lib/splash';
 import './styles.css';
 
 // Apply this env's branding (theme-color + iOS home-screen title/icon) to the
@@ -21,3 +22,7 @@ createRoot(document.getElementById('root')!).render(
     </BrowserRouter>
   </StrictMode>,
 );
+
+// Fade out the inline loading splash once the first route's content is on
+// screen (see lib/splash.ts).
+armSplashDismiss();

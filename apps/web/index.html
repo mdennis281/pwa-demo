@@ -6,7 +6,18 @@
     <link rel="icon" type="image/svg+xml" href="/logo.svg" sizes="any" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#0f172a" />
-    <meta name="description" content="A demo of modern PWA capabilities." />
+    <meta name="description" content="See why the answer might be &quot;Yes, Web.&quot;" />
+
+    <!-- Open Graph / Twitter — same one-line pitch when the site is shared. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="YesWeb" />
+    <meta property="og:title" content="YesWeb" />
+    <meta property="og:description" content="See why the answer might be &quot;Yes, Web.&quot;" />
+    <meta property="og:image" content="/pwa-512x512.png" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="YesWeb" />
+    <meta name="twitter:description" content="See why the answer might be &quot;Yes, Web.&quot;" />
+    <meta name="twitter:image" content="/pwa-512x512.png" />
 
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -88,8 +99,176 @@
           media="screen and (device-width: 744px) and (device-height: 1133px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)" />
 
     <title>YesWeb</title>
+
+    <!--
+      Initial loading splash. Lives inline (not in the React bundle) so it
+      paints on the very first frame — before main.tsx downloads — and there's
+      no blank screen on a cold/offline load. React fades it out once real
+      route content is on screen (see lib/splash.ts). Styles are scoped under
+      #splash so they can't leak into the app.
+    -->
+    <style>
+      #splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2rem;
+        background: radial-gradient(120% 120% at 50% 32%, #0f172a 0%, #020617 72%);
+        opacity: 1;
+        transition: opacity 0.55s ease;
+      }
+      #splash.is-hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #splash .splash-inner {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1.1rem;
+        text-align: center;
+      }
+      #splash .splash-logo {
+        width: 88px;
+        height: 88px;
+        border-radius: 22px;
+        filter: drop-shadow(0 12px 32px rgba(56, 189, 248, 0.28));
+        animation: splash-float 3.2s ease-in-out infinite;
+      }
+      #splash .splash-title {
+        font-size: 1.6rem;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        color: #f8fafc;
+      }
+      /* min-height reserves space for the longest (two-line) tagline so the
+         logo/bar don't jump as taglines of different lengths cycle. */
+      #splash .splash-tagline {
+        min-height: 2.8em;
+        max-width: 32ch;
+        font-size: 0.98rem;
+        line-height: 1.4;
+        color: #94a3b8;
+        opacity: 0;
+        transform: translateY(8px);
+        transition: opacity 0.4s ease, transform 0.4s ease;
+      }
+      #splash .splash-tagline.is-in {
+        opacity: 1;
+        transform: none;
+      }
+      #splash .splash-bar {
+        margin-top: 0.35rem;
+        width: 140px;
+        height: 3px;
+        border-radius: 9999px;
+        background: rgba(148, 163, 184, 0.16);
+        overflow: hidden;
+      }
+      #splash .splash-bar::after {
+        content: "";
+        display: block;
+        height: 100%;
+        width: 40%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #38bdf8, #0ea5e9);
+        animation: splash-bar 1.3s ease-in-out infinite;
+      }
+      @keyframes splash-float {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-7px); }
+      }
+      @keyframes splash-bar {
+        0% { transform: translateX(-130%); }
+        100% { transform: translateX(360%); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #splash .splash-logo { animation: none; }
+        #splash .splash-bar::after { animation: none; width: 100%; }
+        #splash .splash-tagline,
+        #splash .splash-tagline.is-in { transform: none; transition: opacity 0.3s ease; }
+      }
+    </style>
   </head>
   <body class="bg-slate-950 text-slate-100">
+    <div id="splash" role="status" aria-label="Loading YesWeb">
+      <div class="splash-inner">
+        <img class="splash-logo" src="/logo.svg" alt="" width="88" height="88" />
+        <div class="splash-title">YesWeb</div>
+        <div id="splash-tagline" class="splash-tagline" aria-hidden="true"></div>
+        <div class="splash-bar" aria-hidden="true"></div>
+      </div>
+    </div>
+
+    <!--
+      Splash tagline rotation. Plain inline script (not a module) so it runs as
+      the page parses, before the React bundle. It owns the splash's own DOM and
+      animation; lib/splash.ts only decides WHEN to call window.__splash.dismiss().
+    -->
+    <script>
+      (function () {
+        var splash = document.getElementById('splash');
+        var tagEl = document.getElementById('splash-tagline');
+        if (!splash || !tagEl) return;
+
+        var taglines = [
+          `Your native app's worst nightmare.`,
+          `Before you build an app, visit this site.`,
+          `The web called. It's all grown up.`,
+          `Making "we need an app" a harder argument.`,
+          `Because it's probably possible in a browser.`,
+          `For people who think browsers are just for websites.`,
+          `Web. Yes. Really.`,
+          `The website that makes you say "yes" to web.`,
+          `Come for the demo. Leave saying yes to web.`,
+          `Proof that the web can do that.`,
+          `Still think you need an app?`,
+          `Everything the web can do. No excuses.`,
+          `The case for the modern web.`,
+          `Making web skeptics uncomfortable since 2026.`,
+          `One demo away from saying yes.`,
+        ];
+
+        var i = Math.floor(Math.random() * taglines.length);
+        var killed = false;
+
+        function paint(text) {
+          tagEl.textContent = text;
+          requestAnimationFrame(function () { tagEl.classList.add('is-in'); });
+        }
+        // Fade the current line out, then swap text + fade the next in. The
+        // 400ms wait matches the CSS opacity/transform transition.
+        function rotate() {
+          tagEl.classList.remove('is-in');
+          setTimeout(function () {
+            i = (i + 1) % taglines.length;
+            paint(taglines[i]);
+          }, 400);
+        }
+
+        paint(taglines[i]);
+        var rotateTimer = setInterval(rotate, 3000);
+
+        function dismiss() {
+          if (killed) return;
+          killed = true;
+          clearInterval(rotateTimer);
+          splash.classList.add('is-hidden');
+          setTimeout(function () {
+            if (splash && splash.parentNode) splash.parentNode.removeChild(splash);
+          }, 600);
+        }
+
+        window.__splash = { dismiss: dismiss };
+        // Backstop: never strand the user on the splash if the app bundle
+        // fails to load and React never signals readiness.
+        setTimeout(dismiss, 15000);
+      })();
+    </script>
+
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
