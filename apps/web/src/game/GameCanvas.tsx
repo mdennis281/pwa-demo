@@ -114,6 +114,9 @@ export default function GameCanvas({
   const [myPing, setMyPing] = useState<number | null>(null);
   const [snapshotCount, setSnapshotCount] = useState(0);
   const [summitReached, setSummitReached] = useState(false);
+  // Touch only: lets the player dismiss the summit overlay to reclaim screen
+  // space — the Fly/Land touch button keeps flight reachable afterward.
+  const [summitDismissed, setSummitDismissed] = useState(false);
   const [flightOn, setFlightOn] = useState(false);
   const [cpBanner, setCpBanner] = useState<string | null>(null);
   const cpTimerRef = useRef<number | null>(null);
@@ -268,7 +271,16 @@ export default function GameCanvas({
 
   return (
     <Profiler id="dom" onRender={onDomRender}>
-    <div className="fixed inset-0 bg-slate-950 z-40">
+    {/* The whole play screen opts out of our custom pull-to-refresh: the game
+        owns every vertical drag, and the touch controls / HUD sit over the
+        canvas as plain divs — so excluding just the canvas would still let a
+        downward swipe starting on the joystick or a button trigger a reload.
+        PullToRefresh's canStart() honors [data-no-pull-refresh] via closest(). */}
+    {/* select-none: camera drags (and any mouse-look before pointer lock) must
+        never start a text selection on the HUD / overlays sitting over the
+        canvas. Editable form fields (admin menu) keep working — user-select:none
+        does not apply to editing hosts. */}
+    <div data-no-pull-refresh className="fixed inset-0 bg-slate-950 z-40 select-none">
       <Canvas
         shadows={shadowsOn}
         // Cap pixel ratio: retina screens otherwise render at 2-3x, which
@@ -441,10 +453,21 @@ export default function GameCanvas({
         </div>
       )}
 
-      {/* Summit reached → offer flight */}
-      {summitReached && (
+      {/* Summit reached → offer flight. On touch the overlay is dismissable
+          (the Fly/Land touch button keeps flight reachable after dismissing). */}
+      {summitReached && !(isTouch && summitDismissed) && (
         <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center">
-          <div className="bg-slate-950/85 backdrop-blur border border-amber-400/50 rounded-xl px-5 py-3 text-center pointer-events-auto shadow-2xl">
+          <div className="relative bg-slate-950/85 backdrop-blur border border-amber-400/50 rounded-xl px-5 py-3 text-center pointer-events-auto shadow-2xl">
+            {isTouch && (
+              <button
+                type="button"
+                onClick={() => setSummitDismissed(true)}
+                aria-label="Dismiss"
+                className="absolute -top-2 -right-2 w-6 h-6 flex items-center justify-center rounded-full bg-slate-800 border border-slate-600 text-slate-300 text-xs leading-none shadow-md active:scale-95"
+              >
+                ✕
+              </button>
+            )}
             <div className="text-amber-300 font-bold text-lg">🏔 You reached the summit!</div>
             <div className="text-slate-300 text-xs mt-1">
               {flying ? 'Flying — Space up · Shift down · F to land' : 'Flight unlocked — soar over the whole world'}

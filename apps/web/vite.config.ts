@@ -51,13 +51,14 @@ export default defineConfig(({ command }) => ({
       // the auto-injected <script> gives none of that.
       injectRegister: false,
       injectManifest: {
-        // webm covers the tiny demo-video used by the PiP demo so it plays offline.
+        // mp4/webm cover the demo-video used by the PiP demo so it plays offline
+        // (mp4 is the primary source — needed for Safari PiP; webm is the fallback).
         // The manifest is intentionally NOT precached — it's served per-Host by
         // the server (apps/server/src/pwaManifest.ts) so each env gets its own
         // name + tinted icons. vite-plugin-pwa force-adds manifest.webmanifest
         // to the precache regardless of globPatterns, so the actual exclusion
         // happens in sw.ts by filtering self.__WB_MANIFEST. See the note there.
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,webm}'],
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,webm,mp4}'],
       },
       devOptions: {
         enabled: true,

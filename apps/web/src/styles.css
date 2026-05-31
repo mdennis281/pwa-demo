@@ -21,6 +21,10 @@ body {
      so our custom pull-to-refresh (components/PullToRefresh.tsx) is the only
      one — otherwise both fire and the gesture double-triggers. */
   overscroll-behavior-y: contain;
+  /* Disable double-tap-to-zoom (and its 300ms click delay) on touch devices;
+     panning/scrolling still work. Pinch-zoom is blocked via the viewport meta
+     + iOS gesture guard. */
+  touch-action: manipulation;
 }
 
 .titlebar-area {

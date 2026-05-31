@@ -5,11 +5,16 @@ import App from './App';
 import { startPwa } from './lib/pwa';
 import { applyEnvBranding } from './lib/env';
 import { armSplashDismiss } from './lib/splash';
+import { suppressZoomGestures } from './lib/no-zoom';
 import './styles.css';
 
 // Apply this env's branding (theme-color + iOS home-screen title/icon) to the
 // document before paint, so prod/test/dev are visually distinct everywhere.
 applyEnvBranding();
+
+// Block pinch / double-tap zoom on iOS Safari, which ignores the viewport
+// zoom flags — the gestures were interfering with the interactive demos.
+suppressZoomGestures();
 
 // Register the service worker as early as possible so precaching (and thus
 // offline readiness) starts on the very first visit.
