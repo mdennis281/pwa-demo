@@ -232,3 +232,58 @@ export interface ClientToServerEvents {
 export type AnySocketEvent =
   | keyof ServerToClientEvents
   | keyof ClientToServerEvents;
+
+// ────────────────────── PWA environment branding ──────────────────────
+
+/** Which deployment a given hostname represents. ONE Cloud Run container
+ *  serves all of them (yesweb.app, the pwa.dipduo.com fallback, localhost),
+ *  so the PWA identity — manifest name/short_name/icons/theme — is
+ *  differentiated at request time by Host. Without this, Chrome's deep-link
+ *  "open with" picker shows three identically-named "YesWeb" entries because
+ *  the manifest `id` is already origin-scoped (three distinct installed apps)
+ *  but everything else is identical. The server applies this when serving
+ *  `/manifest.webmanifest`; the web app uses it for the in-app env badge and
+ *  theme-color tint. */
+export type PwaEnvKey = 'prod' | 'test' | 'dev';
+
+export type PwaEnv = {
+  key: PwaEnvKey;
+  /** Manifest `name` + installed-app title + deep-link picker label. */
+  name: string;
+  /** Manifest `short_name` (home-screen / launcher label). */
+  shortName: string;
+  /** Manifest theme_color + background_color (standalone title bar + splash)
+   *  and the browser UI tint via the <meta name="theme-color"> tag. */
+  themeColor: string;
+  /** Hue rotation (degrees) applied to the base sky-blue icon set to tint it
+   *  per env. 0 = the original brand icon. Used both by the build-time icon
+   *  generator (scripts/gen-env-icons.mjs) and the in-app logo CSS filter. */
+  iconHue: number;
+  /** Filename suffix for this env's tinted icon variants (e.g. '-test' ⇒
+   *  pwa-512x512-test.png). Empty for prod, which uses the base icons. */
+  iconSuffix: string;
+  /** Accent color for the in-app env badge pill. */
+  accent: string;
+};
+
+export const PWA_ENVS: Record<PwaEnvKey, PwaEnv> = {
+  prod: { key: 'prod', name: 'YesWeb',      shortName: 'YesWeb',      themeColor: '#0f172a', iconHue: 0,   iconSuffix: '',      accent: '#38bdf8' },
+  test: { key: 'test', name: 'YesWeb Test', shortName: 'YesWeb Test', themeColor: '#2e1065', iconHue: 95,  iconSuffix: '-test', accent: '#a78bfa' },
+  dev:  { key: 'dev',  name: 'YesWeb Dev',  shortName: 'YesWeb Dev',  themeColor: '#451a03', iconHue: 200, iconSuffix: '-dev',  accent: '#fbbf24' },
+};
+
+/** Map a hostname (`req.hostname` server-side, `location.hostname` client-side)
+ *  to its PWA env:
+ *    prod → yesweb.app, www.yesweb.app
+ *    test → pwa.dipduo.com  (the legacy/fallback domain)
+ *    dev  → localhost, 127.0.0.1, *.run.app, LAN IPs, anything else
+ *  NOTE: the COMPILED server can't import this at runtime (the package is
+ *  consumed as raw TS source — Node would choke on the .ts extension; see the
+ *  README + isDedicatedLobbyId above), so apps/server/src/pwaManifest.ts keeps
+ *  a hand-mirror of this mapping. Keep the two in sync. */
+export function resolvePwaEnv(hostname: string): PwaEnv {
+  const h = (hostname || '').toLowerCase().split(':')[0];
+  if (h === 'yesweb.app' || h === 'www.yesweb.app') return PWA_ENVS.prod;
+  if (h === 'pwa.dipduo.com') return PWA_ENVS.test;
+  return PWA_ENVS.dev;
+}

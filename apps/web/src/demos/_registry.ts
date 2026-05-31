@@ -25,9 +25,9 @@ export const DEMOS: DemoSpec[] = [
   // ─── Install & PWA ─────────────────────────────────────────────
   {
     id: 'service-worker',
-    title: 'Show registration',
-    blurb: 'Inspect the active SW registration and scope.',
-    type: 'modal',
+    title: 'Inspect lifecycle',
+    blurb: 'SW version, caches & size, install/activate timing, and version history.',
+    type: 'page',
     category: 'Install & PWA',
     capabilities: ['service-worker'],
     component: lazy(() => import('./install-pwa/service-worker')),

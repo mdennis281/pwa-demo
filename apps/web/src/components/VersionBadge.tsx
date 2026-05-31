@@ -7,7 +7,7 @@ import { checkForUpdate, usePwa } from '../lib/pwa';
  */
 export default function VersionBadge() {
   const { version, buildTime, offlineReady, needRefresh, updating, lastChecked } = usePwa();
-  const shortVersion = `v${version.split('+')[0]}`;
+  const shortVersion = `v${version}`;
 
   let label: string;
   let dotClass: string;

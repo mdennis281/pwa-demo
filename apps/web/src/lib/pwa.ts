@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { registerSW } from 'virtual:pwa-register';
+import { trackSwLifecycle } from './swLifecycle';
 
 /**
  * Single source of truth for service-worker state. We register the SW exactly
@@ -15,7 +16,7 @@ import { registerSW } from 'virtual:pwa-register';
  */
 
 export type PwaState = {
-  /** package version + short git sha, e.g. "0.1.0+1a2b3c4". */
+  /** UTC calendar build number, e.g. "2026.05.31.50421" (see vite.config.ts). */
   version: string;
   /** ISO build timestamp. */
   buildTime: string;
@@ -76,9 +77,12 @@ export function startPwa(): void {
     onRegisteredSW(_swScriptUrl, reg) {
       registration = reg;
       set({ lastChecked: Date.now() });
-      // Poll for a newer SW so open tabs pick up deploys without a manual
-      // refresh. registration.update() is a no-op when nothing changed.
       if (reg) {
+        // Observe the install→waiting→activate state machine and log each
+        // version to the sw-history store (feeds the SW Lifecycle demo).
+        trackSwLifecycle(reg);
+        // Poll for a newer SW so open tabs pick up deploys without a manual
+        // refresh. registration.update() is a no-op when nothing changed.
         window.setInterval(() => {
           void reg.update().then(() => set({ lastChecked: Date.now() }));
         }, UPDATE_POLL_MS);

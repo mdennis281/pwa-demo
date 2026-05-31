@@ -17,7 +17,7 @@ const AUTO_APPLY_SECONDS = 3;
 
 export default function PwaUpdater() {
   const { needRefresh, updating, offlineReady, version } = usePwa();
-  const shortVersion = `v${version.split('+')[0]}`;
+  const shortVersion = `v${version}`;
 
   const [countdown, setCountdown] = useState(AUTO_APPLY_SECONDS);
   const [offlineToast, setOfflineToast] = useState(false);

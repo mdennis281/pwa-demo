@@ -100,15 +100,6 @@ export default function BgSyncDemo() {
   }
 
   useEffect(() => {
-    const handleToggle = (e: Event) => {
-      const detail = (e as CustomEvent<{ fakeOffline: boolean }>).detail;
-      setFakeOffline(detail.fakeOffline);
-    };
-    window.addEventListener('pwa-demo:offline-toggle', handleToggle);
-    return () => window.removeEventListener('pwa-demo:offline-toggle', handleToggle);
-  }, []);
-
-  useEffect(() => {
     const id = window.setInterval(pollQueue, 2000);
     pollQueue();
     return () => window.clearInterval(id);
@@ -122,8 +113,13 @@ export default function BgSyncDemo() {
       </div>
 
       <div className="space-y-1.5">
-        <div className="text-xs text-slate-400">
-          submit while offline (toggle in sidebar){fakeOffline ? ' — offline' : ''}:
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-xs text-slate-400">
+            submit while offline{fakeOffline ? ' — offline' : ''}:
+          </div>
+          <Btn variant="ghost" onClick={() => setFakeOffline((v) => !v)}>
+            {fakeOffline ? 'Go online' : 'Go offline'}
+          </Btn>
         </div>
         <div className="flex gap-2">
           <input
@@ -155,7 +151,7 @@ export default function BgSyncDemo() {
       <Out>{out}</Out>
       {lastSync && <Out tone="ok">last sync: {lastSync}</Out>}
       <div className="text-xs text-slate-500">
-        toggle offline mode in sidebar, submit items, then go back online to flush the queue
+        toggle offline mode, submit items, then go back online to flush the queue
       </div>
     </div>
   );

@@ -4,12 +4,13 @@ import { NavigationRoute, registerRoute } from 'workbox-routing';
 import { CacheFirst, StaleWhileRevalidate } from 'workbox-strategies';
 import { ExpirationPlugin } from 'workbox-expiration';
 import { CacheableResponsePlugin } from 'workbox-cacheable-response';
+import { recordVersion } from './lib/swHistoryDb';
 
 declare const self: ServiceWorkerGlobalScope & {
   __WB_MANIFEST: Array<{ url: string; revision: string | null }>;
 };
 
-// Bumped on every build (package version + git sha, see vite.config.ts).
+// Bumped on every build (UTC calendar build number, see vite.config.ts).
 // Runtime caches are stamped with it so the new version's `activate` can
 // delete the previous version's caches — "invalidate the old SW" literally.
 const VERSION = __APP_VERSION__;
@@ -23,7 +24,21 @@ const RUNTIME_CACHES = {
 // graphics, workers, storage, sensors, the games' rendering — runs fully
 // offline once installed. cleanupOutdatedCaches() drops precache entries left
 // behind by previous builds so storage doesn't grow without bound.
-precacheAndRoute(self.__WB_MANIFEST);
+//
+// EXCLUDE manifest.webmanifest from precaching. The server serves it per-Host
+// (apps/server/src/pwaManifest.ts) so yesweb.app / pwa.dipduo.com / localhost
+// each get their own PWA name + tinted icons. If it were precached, the SW
+// would serve one env's cached copy for every host and Chrome would reset each
+// install's identity back to a generic "YesWeb". Dropping it here removes it
+// from both the precache download and the precache route, so the browser's
+// manifest fetch falls through to the network (only needed online anyway, at
+// install/identity-update time). vite-plugin-pwa force-injects this entry
+// regardless of the build-time globPatterns, so the filter must live here.
+precacheAndRoute(
+  self.__WB_MANIFEST.filter((e) =>
+    typeof e === 'string' ? true : e.url !== 'manifest.webmanifest',
+  ),
+);
 cleanupOutdatedCaches();
 
 // SPA navigation fallback: serve the precached index.html shell for ALL
@@ -61,12 +76,36 @@ registerRoute(
 );
 
 // ── Versioning / lifecycle ────────────────────────────────────────────────
+// Record this version's install moment to the sw-history IndexedDB store the
+// moment the `install` event fires. This is the authoritative timeline source
+// for the SW Lifecycle demo: the running SW knows its own compiled VERSION, so
+// attribution is always correct, and it's captured even when no tab is open to
+// watch the registration's statechange stream. The page layers finer
+// install→waiting→activate splits on top (lib/swLifecycle.ts).
+self.addEventListener('install', (event) => {
+  const at = Date.now();
+  event.waitUntil(
+    recordVersion({
+      version: VERSION,
+      buildTime: __BUILD_TIME__,
+      scope: self.registration.scope,
+      installAt: at,
+      lastInstallAt: at,
+      installCount: 1,
+      firstSeenAt: at,
+    }),
+  );
+});
+
 // When a new version activates, purge runtime caches that don't belong to it
 // (workbox's own precache is handled by cleanupOutdatedCaches above), then
 // claim open clients so this freshly-installed SW controls them immediately —
 // no "waiting" worker stuck behind open tabs. skipWaiting is triggered from
 // the page (lib/pwa.ts → SKIP_WAITING message) right before it reloads.
+// We bracket the cache purge with timestamps so the demo can show how long
+// `activate` actually took.
 self.addEventListener('activate', (event) => {
+  const at = Date.now();
   event.waitUntil(
     (async () => {
       const keep = new Set<string>(Object.values(RUNTIME_CACHES));
@@ -77,6 +116,7 @@ self.addEventListener('activate', (event) => {
           .map((n) => caches.delete(n)),
       );
       await self.clients.claim();
+      await recordVersion({ version: VERSION, activateAt: at, activateDoneAt: Date.now() });
     })(),
   );
 });
@@ -141,6 +181,18 @@ self.addEventListener('notificationclick', (event) => {
 
 self.addEventListener('message', (event) => {
   if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
+  // Lets the page ask ANY worker (active OR waiting) for its compiled version
+  // over a MessageChannel. The waiting worker is the *new* build, so the demo
+  // can show "active 2026.05.31.a vs waiting 2026.05.31.b" during an update —
+  // the literal version skew between the running bundle and the next SW.
+  if (event.data?.type === 'SW_INFO') {
+    event.ports[0]?.postMessage({
+      version: VERSION,
+      buildTime: __BUILD_TIME__,
+      scope: self.registration.scope,
+      runtimeCaches: Object.values(RUNTIME_CACHES),
+    });
+  }
 });
 
 self.addEventListener('periodicsync', ((event: ExtendableEvent & { tag: string }) => {

@@ -42,7 +42,11 @@ COPY scripts              scripts
 # `shared` is consumed as raw TS by Vite (web) but as compiled .js by Node
 # (server), so it must build first. See repo memory note.
 RUN npm -w @pwa-demo/shared run build
-RUN npm run gen:assets && npm run gen:screenshots
+# gen:env-icons hue-tints the base icons into per-env (-test/-dev) variants the
+# per-Host manifest references; it MUST run after gen:assets and before the web
+# build copies public/ into dist. (The per-workspace build below skips the root
+# prebuild hook, so all three generators are invoked explicitly here.)
+RUN npm run gen:assets && npm run gen:env-icons && npm run gen:screenshots
 RUN npm -w @pwa-demo/web    run build
 RUN npm -w @pwa-demo/server run build
 

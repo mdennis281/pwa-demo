@@ -231,3 +231,18 @@ curl -sI https://pwa.dipduo.com/api/health   # expect HTTP/2 200, NOT a 301 to y
 > RP ID from `req.hostname`, so a passkey registered on `yesweb.app` won't
 > authenticate on `pwa.dipduo.com` and vice-versa. Each domain works
 > independently; this is correct WebAuthn behavior, not a bug.
+
+### Per-environment PWA identity
+
+Because all three hosts share one container, each is given a distinct **installed-app
+identity** so Chrome's deep-link "open with" picker (and the home screen) can tell
+them apart — `yesweb.app` installs as **YesWeb**, `pwa.dipduo.com` as **YesWeb Test**
+(violet icon), localhost as **YesWeb Dev** (amber icon). This is done by serving
+`/manifest.webmanifest` dynamically per `Host` (`apps/server/src/pwaManifest.ts`),
+backed by hue-tinted icon variants (`scripts/gen-env-icons.mjs`). The PWA `id` was
+already origin-scoped, so the three were always separate installs — they were just
+labeled identically. The host→identity table lives in `packages/shared`
+(`resolvePwaEnv`); add a new alias there + in the server mirror when you add a domain.
+One catch worth knowing: the service worker must NOT precache the manifest (it's
+filtered out of `self.__WB_MANIFEST` in `apps/web/src/sw.ts`) or it would shadow the
+per-host route. See the `pwa-per-env-identity` repo memory for the full rationale.

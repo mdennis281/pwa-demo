@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
+import { DraggablePanel } from './DraggablePanel';
 
 // ════════════════════════════════════════════════════════════════════════
 //  RENDER PERFORMANCE OVERLAY
@@ -350,9 +351,7 @@ function Row({ label, value, color }: { label: string; value: string; color?: st
 
 export function RenderPerfOverlay({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [, setTick] = useState(0);
-  const [pos, setPos] = useState({ x: 16, y: 80 });
   const [copied, setCopied] = useState(false);
-  const drag = useRef<{ dx: number; dy: number } | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -360,32 +359,10 @@ export function RenderPerfOverlay({ open, onClose }: { open: boolean; onClose: (
     return () => clearInterval(id);
   }, [open]);
 
-  useEffect(() => {
-    if (!open) return;
-    const onMove = (e: PointerEvent) => {
-      if (!drag.current) return;
-      setPos({
-        x: Math.max(0, e.clientX - drag.current.dx),
-        y: Math.max(0, e.clientY - drag.current.dy),
-      });
-    };
-    const onUp = () => { drag.current = null; };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-    return () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-    };
-  }, [open]);
-
   if (!open) return null;
 
   const s = store.latest;
   const dev = store.device;
-  const startDrag = (e: React.PointerEvent) => {
-    e.stopPropagation();
-    drag.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y };
-  };
 
   const copyJson = async () => {
     const json = JSON.stringify(buildExport(), null, 2);
@@ -399,20 +376,7 @@ export function RenderPerfOverlay({ open, onClose }: { open: boolean; onClose: (
   };
 
   return (
-    <div
-      className="fixed z-50 w-64 bg-slate-950/95 backdrop-blur border border-sky-500/40 rounded-lg text-xs font-mono text-slate-200 shadow-2xl select-none"
-      style={{ left: pos.x, top: pos.y }}
-      onPointerDown={(e) => e.stopPropagation()}
-    >
-      <div
-        className="flex items-center justify-between px-3 py-2 border-b border-slate-700 cursor-move"
-        onPointerDown={startDrag}
-      >
-        <span className="text-sky-300 font-semibold">📊 Render perf</span>
-        <button onClick={onClose} className="text-slate-400 hover:text-slate-100 px-1 cursor-pointer">✕</button>
-      </div>
-
-      <div className="p-3 space-y-1.5">
+    <DraggablePanel title="Render perf" icon="📊" onClose={onClose} defaultPos={{ x: 16, y: 80 }}>
         <div className="flex items-baseline justify-between">
           <span className="text-slate-400">FPS</span>
           <span className="text-2xl font-bold tabular-nums" style={{ color: fpsColor(s?.fps ?? 0) }}>
@@ -465,7 +429,6 @@ export function RenderPerfOverlay({ open, onClose }: { open: boolean; onClose: (
             ⬇
           </button>
         </div>
-      </div>
-    </div>
+    </DraggablePanel>
   );
 }

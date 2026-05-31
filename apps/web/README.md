@@ -12,7 +12,7 @@ src/
 ├─ components/
 │   ├─ Layout.tsx           App shell — mobile header + desktop sidebar
 │   ├─ DemoSidebar.tsx      Pure navigation; categories + capability links
-│   ├─ ConnectionBadge.tsx  Network / WS status; click to fake-offline
+│   ├─ ConnectionBadge.tsx  WebSocket connection status
 │   ├─ InstallPrompt.tsx    beforeinstallprompt capture + UI
 │   └─ FlowField.tsx        Particle flow field for the Web Worker demo
 ├─ demos/                   62 demos + framework — see demos/README.md

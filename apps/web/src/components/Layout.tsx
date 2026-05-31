@@ -6,6 +6,7 @@ import DemoSidebar from './DemoSidebar';
 import PwaUpdater from './PwaUpdater';
 import VersionBadge from './VersionBadge';
 import ModalHost from '../demos/_ModalHost';
+import { pwaEnv, envLogoFilter } from '../lib/env';
 
 export default function Layout() {
   const [installable, setInstallable] = useState(false);
@@ -58,9 +59,9 @@ export default function Layout() {
           the safe area so it doesn't look like a gap. */}
       <header ref={headerRef} className="md:hidden sticky top-0 z-30 flex items-center justify-between bg-slate-900 border-b border-slate-800 px-4 py-3 pt-[max(env(safe-area-inset-top),0.75rem)] pl-[max(env(safe-area-inset-left),1rem)] pr-[max(env(safe-area-inset-right),1rem)]">
         <Link to="/" className="flex items-center gap-2" onClick={() => setMobileOpen(false)}>
-          <img src="/logo.svg" alt="" className="w-7 h-7" />
+          <img src="/logo.svg" alt="" className="w-7 h-7" style={{ filter: envLogoFilter }} />
           <div>
-            <div className="font-semibold leading-tight text-sm">YesWeb</div>
+            <div className="font-semibold leading-tight text-sm">{pwaEnv.name}</div>
             <div className="text-[10px] text-slate-500">{displayMode}</div>
           </div>
         </Link>
@@ -82,9 +83,9 @@ export default function Layout() {
         } md:static md:inset-auto md:z-auto md:flex md:w-72 md:min-h-screen md:sticky md:top-0 md:max-h-screen bg-slate-900 border-r border-slate-800 p-4 pb-[max(env(safe-area-inset-bottom),1rem)] pl-[max(env(safe-area-inset-left),1rem)] pr-[max(env(safe-area-inset-right),1rem)] md:pb-4 md:pl-4 md:pr-4 flex-col gap-3`}
       >
         <Link to="/" className="hidden md:flex items-center gap-2" onClick={() => setMobileOpen(false)}>
-          <img src="/logo.svg" alt="" className="w-8 h-8" />
+          <img src="/logo.svg" alt="" className="w-8 h-8" style={{ filter: envLogoFilter }} />
           <div>
-            <div className="font-semibold leading-tight">YesWeb</div>
+            <div className="font-semibold leading-tight">{pwaEnv.name}</div>
             <div className="text-xs text-slate-500">{displayMode}</div>
           </div>
         </Link>

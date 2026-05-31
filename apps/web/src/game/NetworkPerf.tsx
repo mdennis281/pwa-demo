@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PlayerSnapshot, ServerDebugStats } from '@pwa-demo/shared';
 import { getSocket, socketMetrics } from '../lib/socket';
+import { DraggablePanel } from './DraggablePanel';
+
+// Draggable "Network perf" overlay — client rx/tx/ping, server tick stats, and
+// the lobby roster. Migrated out of the old DebugPanel into a DraggablePanel so
+// it shares the same drag/close chrome as Render perf and Settings.
 
 type ClientMetrics = {
   rxEvPerSec: number;
@@ -14,10 +19,9 @@ type ClientMetrics = {
   myPing: number | null;
 };
 
-export default function DebugPanel({
+export function NetworkPerfOverlay({
   open,
   onClose,
-  onOpenPerf,
   players,
   selfId,
   myPing,
@@ -25,7 +29,6 @@ export default function DebugPanel({
 }: {
   open: boolean;
   onClose: () => void;
-  onOpenPerf: () => void;
   players: PlayerSnapshot[];
   selfId: string;
   myPing: number | null;
@@ -37,6 +40,11 @@ export default function DebugPanel({
     rxBytesTotal: 0, txBytesTotal: 0, snapshotCount: 0, snapshotRate: 0, myPing: null,
   });
 
+  // Live values read by the 1Hz interval without re-creating it each snapshot.
+  const liveRef = useRef({ snapshotCount, myPing });
+  liveRef.current.snapshotCount = snapshotCount;
+  liveRef.current.myPing = myPing;
+
   // Previous sample for delta-based per-second rates.
   const prevRef = useRef({
     rxEvents: socketMetrics.rxEvents, rxBytes: socketMetrics.rxBytesEst,
@@ -44,8 +52,9 @@ export default function DebugPanel({
     snap: snapshotCount, at: Date.now(),
   });
 
-  // Subscribe to debug stats when open
+  // Subscribe to server debug stats only while the overlay is open.
   useEffect(() => {
+    if (!open) return;
     const s = getSocket();
     s.emit('debug:subscribe');
     const onStats = (stats: ServerDebugStats) => setServerStats(stats);
@@ -54,54 +63,45 @@ export default function DebugPanel({
       s.emit('debug:unsubscribe');
       s.off('debug:server-stats', onStats);
     };
-  }, []);
+  }, [open]);
 
-  // Compute per-second rates from deltas every second.
+  // Per-second client rates from socketMetrics deltas (1Hz; reads live refs).
   useEffect(() => {
+    if (!open) return;
+    prevRef.current = {
+      rxEvents: socketMetrics.rxEvents, rxBytes: socketMetrics.rxBytesEst,
+      txEvents: socketMetrics.txEvents, txBytes: socketMetrics.txBytesEst,
+      snap: liveRef.current.snapshotCount, at: Date.now(),
+    };
     const id = setInterval(() => {
       const now = Date.now();
       const p = prevRef.current;
       const dt = Math.max(0.001, (now - p.at) / 1000);
-      const m = {
+      const sc = liveRef.current.snapshotCount;
+      setClientMetrics({
         rxEvPerSec: (socketMetrics.rxEvents - p.rxEvents) / dt,
         rxBytesPerSec: (socketMetrics.rxBytesEst - p.rxBytes) / dt,
         txEvPerSec: (socketMetrics.txEvents - p.txEvents) / dt,
         txBytesPerSec: (socketMetrics.txBytesEst - p.txBytes) / dt,
         rxBytesTotal: socketMetrics.rxBytesEst,
         txBytesTotal: socketMetrics.txBytesEst,
-        snapshotCount,
-        snapshotRate: (snapshotCount - p.snap) / dt,
-        myPing,
-      };
-      setClientMetrics(m);
+        snapshotCount: sc,
+        snapshotRate: (sc - p.snap) / dt,
+        myPing: liveRef.current.myPing,
+      });
       prevRef.current = {
         rxEvents: socketMetrics.rxEvents, rxBytes: socketMetrics.rxBytesEst,
         txEvents: socketMetrics.txEvents, txBytes: socketMetrics.txBytesEst,
-        snap: snapshotCount, at: now,
+        snap: sc, at: now,
       };
     }, 1000);
     return () => clearInterval(id);
-  }, [snapshotCount, myPing]);
+  }, [open]);
 
   if (!open) return null;
 
   return (
-    /* max-h + overflow-y-auto so the panel can never run off-screen as
-       lobbies fill up or new stat rows get added. left-4 / top-32 places
-       it just below the altitude card. */
-    <div className="absolute top-32 left-4 z-40 bg-slate-950/95 backdrop-blur border border-slate-700 rounded-xl shadow-2xl w-72 p-4 space-y-4 text-xs font-mono pointer-events-auto max-h-[calc(100vh-9rem)] overflow-y-auto">
-      <div className="flex items-center justify-between">
-        <span className="text-slate-400 text-[10px] uppercase tracking-wider">debug</span>
-        <button onClick={onClose} className="text-slate-600 hover:text-slate-300 leading-none">×</button>
-      </div>
-
-      <button
-        onClick={onOpenPerf}
-        className="w-full bg-sky-600/80 hover:bg-sky-500 text-white rounded px-2 py-1.5 text-[11px] font-semibold"
-      >
-        📊 Render performance
-      </button>
-
+    <DraggablePanel title="Network perf" icon="📡" onClose={onClose} width="w-72" defaultPos={{ x: 16, y: 80 }}>
       {/* client metrics */}
       <section className="space-y-1">
         <p className="text-slate-500 text-[9px] uppercase tracking-wider mb-1">client</p>
@@ -115,7 +115,7 @@ export default function DebugPanel({
 
       {/* server metrics */}
       {serverStats && (
-        <section className="space-y-1">
+        <section className="space-y-1 pt-1 border-t border-slate-800">
           <p className="text-slate-500 text-[9px] uppercase tracking-wider mb-1">server</p>
           <Row label="uptime" value={fmtUptime(serverStats.uptimeMs)} />
           <Row label="lobbies" value={String(serverStats.totalLobbies)} />
@@ -135,11 +135,11 @@ export default function DebugPanel({
 
       {/* player list */}
       {players.length > 0 && (
-        <section className="space-y-1">
+        <section className="space-y-1 pt-1 border-t border-slate-800 max-h-40 overflow-y-auto">
           <p className="text-slate-500 text-[9px] uppercase tracking-wider mb-1">players in lobby</p>
           {players.map((p) => (
             <div key={p.id} className="flex justify-between items-center">
-              <span className={p.id === selfId ? 'text-brand-400 truncate max-w-[120px]' : 'text-slate-300 truncate max-w-[120px]'}>
+              <span className={p.id === selfId ? 'text-brand-400 truncate max-w-[140px]' : 'text-slate-300 truncate max-w-[140px]'}>
                 {p.isHost ? '★ ' : ''}{p.displayName}
               </span>
               <span className={`shrink-0 ${pingColor(p.ping)}`}>
@@ -149,7 +149,7 @@ export default function DebugPanel({
           ))}
         </section>
       )}
-    </div>
+    </DraggablePanel>
   );
 }
 

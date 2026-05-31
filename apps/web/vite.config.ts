@@ -1,33 +1,38 @@
-import { execSync } from 'node:child_process';
-import { createRequire } from 'node:module';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
-// Build-time version stamp. The package version is the human-facing label;
-// the short git sha + build time make every deploy uniquely identifiable so
-// the service worker's "new version → push update" flow has something to show.
-// Git sha is best-effort: CI checkouts and the LAN autodeploy box have git,
-// but a tarball build (no .git) must still succeed — hence the try/catch.
-const require = createRequire(import.meta.url);
-const pkgVersion: string = require('./package.json').version ?? '0.0.0';
-let gitSha = 'nogit';
-try {
-  gitSha = execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] })
-    .toString()
-    .trim();
-} catch {
-  /* no git available — fall back to the placeholder */
-}
-const buildTime = new Date().toISOString();
-const appVersion = `${pkgVersion}+${gitSha}`;
+// Build-time version stamp. A real build (`command === 'build'` — Cloud Run,
+// LAN box) gets a UTC calendar build number:
+//   yyyy.mm.dd.<seconds since the UTC day started>
+// It's monotonic within a day and unique across days, so each deploy is
+// distinguishable — the service worker's "new version → push update" flow has
+// a distinct value to compare and the footer badge shows when the running
+// build was cut.
+//
+// The local dev server (`command === 'serve'`) instead stamps a neutral
+// placeholder, 0000.00.00.00000, so it's obvious you're on a local build and
+// not a real deploy — the dev "version" would otherwise just be whenever you
+// happened to start the server.
+const DEV_VERSION = '0000.00.00.00000';
+const now = new Date();
+const yyyy = now.getUTCFullYear();
+const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
+const dd = String(now.getUTCDate()).padStart(2, '0');
+const secondsSinceDayStart = Math.floor(
+  (now.getTime() - Date.UTC(yyyy, now.getUTCMonth(), now.getUTCDate())) / 1000,
+);
+const buildTime = now.toISOString();
+const calendarVersion = `${yyyy}.${mm}.${dd}.${secondsSinceDayStart}`;
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   // Exposed to both the app bundle AND the service worker build — vite-plugin-pwa
   // forwards `define` into its injectManifest compile, so sw.ts can read these.
+  // Keying off `command` here keeps the footer badge, the SW, and the SW
+  // Lifecycle demo all agreeing on the same version.
   define: {
-    __APP_VERSION__: JSON.stringify(appVersion),
+    __APP_VERSION__: JSON.stringify(command === 'serve' ? DEV_VERSION : calendarVersion),
     __BUILD_TIME__: JSON.stringify(buildTime),
   },
   plugins: [
@@ -47,7 +52,12 @@ export default defineConfig({
       injectRegister: false,
       injectManifest: {
         // webm covers the tiny demo-video used by the PiP demo so it plays offline.
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest,webm}'],
+        // The manifest is intentionally NOT precached — it's served per-Host by
+        // the server (apps/server/src/pwaManifest.ts) so each env gets its own
+        // name + tinted icons. vite-plugin-pwa force-adds manifest.webmanifest
+        // to the precache regardless of globPatterns, so the actual exclusion
+        // happens in sw.ts by filtering self.__WB_MANIFEST. See the note there.
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,webm}'],
       },
       devOptions: {
         enabled: true,
@@ -123,4 +133,4 @@ export default defineConfig({
   build: {
     sourcemap: true,
   },
-});
+}));

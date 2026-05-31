@@ -12,6 +12,7 @@ import pushRoute from './routes/push.js';
 import towerRoute from './routes/tower.js';
 import bgfetchRoute from './routes/bgfetch.js';
 import passkeysRoute from './routes/passkeys.js';
+import { createManifestHandler } from './pwaManifest.js';
 
 webpush.setVapidDetails(env.VAPID_SUBJECT, env.VAPID_PUBLIC_KEY, env.VAPID_PRIVATE_KEY);
 
@@ -83,6 +84,9 @@ import('node:fs').then(({ existsSync }) => {
     return;
   }
   if (existsSync(webDist)) {
+    // Per-host PWA manifest — MUST precede express.static so the dynamic copy
+    // wins over the baked dist/manifest.webmanifest (see pwaManifest.ts).
+    app.get('/manifest.webmanifest', createManifestHandler(webDist));
     app.use(express.static(webDist));
     app.get('*', (_req, res) => res.sendFile(path.join(webDist, 'index.html')));
     console.log(`[web] prod mode — serving static SPA from ${webDist}`);

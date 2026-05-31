@@ -32,7 +32,9 @@ game/
 ├─ HUD.tsx              Altitude, best height, leaderboard, control hints
 ├─ AdminMenu.tsx        In-game admin: pause/kick/reconfigure THIS server (Ctrl+A)
 ├─ CheatMenu.tsx        Client-side fly + infinite-jumps (Ctrl+C)
-├─ DebugPanel.tsx       Ping + snapshot rate + player list
+├─ NetworkPerf.tsx      Ping + snapshot rate + player list (draggable overlay)
+├─ SettingsMenu.tsx     ⚙ launcher — shadows toggle + opens the perf overlays
+├─ DraggablePanel.tsx   Shared draggable/closable chrome for all overlays
 ├─ SkyDome.tsx          Custom shader gradient skydome with sun
 ├─ Spectator.tsx        Free-fly camera for spectator role
 ├─ controls/

@@ -1,6 +1,7 @@
 import { Profiler, type ProfilerOnRenderCallback, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import type * as THREE from 'three';
+import { PCFSoftShadowMap } from 'three';
 import Player from './Player';
 import { triggerWave } from './Character';
 import RemotePlayer from './RemotePlayer';
@@ -10,9 +11,11 @@ import World, { generateWorld } from './World';
 import { spawnFor } from './worldgen';
 import CheatMenu, { DEFAULT_CHEATS, type Cheats } from './CheatMenu';
 import AdminMenu from './AdminMenu';
-import DebugPanel from './DebugPanel';
+import { SettingsMenu } from './SettingsMenu';
+import { NetworkPerfOverlay } from './NetworkPerf';
 import HUD from './HUD';
 import { RenderStatsCollector, RenderPerfOverlay, reportCommit } from './RenderPerf';
+import { resolveInitialShadows, resolveShadowRes, saveShadowPref } from './settings';
 import TouchControls from './controls/TouchControls';
 import { useKeyboard } from './controls/useKeyboard';
 import { useMouseLook } from './controls/useMouseLook';
@@ -45,6 +48,29 @@ function ShaderPrecompiler() {
   return null;
 }
 
+/** Applies a live shadows on/off toggle without remounting the Canvas: flips the
+ *  renderer's shadow map and recompiles every material's shadow code. The INITIAL
+ *  state comes from the Canvas `shadows` prop, so the first run skips the (costly)
+ *  recompile and only the actual toggles pay for it. */
+function ShadowController({ enabled }: { enabled: boolean }) {
+  const gl = useThree((s) => s.gl);
+  const scene = useThree((s) => s.scene);
+  const first = useRef(true);
+  useEffect(() => {
+    gl.shadowMap.enabled = enabled;
+    if (enabled) gl.shadowMap.type = PCFSoftShadowMap;
+    gl.shadowMap.needsUpdate = true;
+    if (first.current) { first.current = false; return; }
+    scene.traverse((o) => {
+      const m = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+      if (!m) return;
+      if (Array.isArray(m)) m.forEach((mm) => { mm.needsUpdate = true; });
+      else m.needsUpdate = true;
+    });
+  }, [enabled, gl, scene]);
+  return null;
+}
+
 export default function GameCanvas({
   lobby,
   selfId,
@@ -67,18 +93,12 @@ export default function GameCanvas({
 }) {
   const world = useMemo(() => generateWorld(1337), []);
   const spawn = useMemo(() => spawnFor(selfClientId), [selfClientId]);
-  // Render-quality switches for diagnosing the GPU-path freezes. A/B without a
-  // rebuild: add `?noshadows` to drop the per-frame shadow pass entirely, or
-  // `?shadowres=1024` to shrink the shadow map. The perf overlay's `shadows`
-  // field self-labels which mode a capture was taken in.
-  const renderOpts = useMemo(() => {
-    const q = new URLSearchParams(window.location.search);
-    const shadowRes = Number(q.get('shadowres'));
-    return {
-      shadowsOn: !q.has('noshadows'),
-      shadowRes: Number.isFinite(shadowRes) && shadowRes > 0 ? shadowRes : 2048,
-    };
-  }, []);
+  // Shadows default OFF on software GPUs (the 20-30fps WARP/SwiftShader case)
+  // and ON otherwise; a saved choice or `?noshadows` overrides. Live-toggleable
+  // from the Settings menu. `?shadowres=1024` shrinks the shadow map.
+  const [shadowsOn, setShadowsOn] = useState(resolveInitialShadows);
+  const shadowRes = useMemo(resolveShadowRes, []);
+  const toggleShadows = (on: boolean) => { setShadowsOn(on); saveShadowPref(on); };
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
   const [canvasEl, setCanvasEl] = useState<HTMLCanvasElement | null>(null);
   const [isTouch, setIsTouch] = useState(false);
@@ -86,8 +106,9 @@ export default function GameCanvas({
   const [cheats, setCheats] = useState<Cheats>(DEFAULT_CHEATS);
   const [cheatsOpen, setCheatsOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
-  const [debugOpen, setDebugOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [perfOpen, setPerfOpen] = useState(false);
+  const [networkOpen, setNetworkOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [myPing, setMyPing] = useState<number | null>(null);
   const [snapshotCount, setSnapshotCount] = useState(0);
@@ -225,7 +246,7 @@ export default function GameCanvas({
     <Profiler id="dom" onRender={onDomRender}>
     <div className="fixed inset-0 bg-slate-950 z-40">
       <Canvas
-        shadows={renderOpts.shadowsOn}
+        shadows={shadowsOn}
         // Cap pixel ratio: retina screens otherwise render at 2-3x, which
         // Firefox's compositor handles much less efficiently than Chrome.
         // 1.5x retains visible sharpness with a huge fill-rate saving.
@@ -263,9 +284,9 @@ export default function GameCanvas({
             position={[50, 60, 30]}
             intensity={1.5}
             color="#ffe5b0"
-            castShadow={renderOpts.shadowsOn}
-            shadow-mapSize-width={renderOpts.shadowRes}
-            shadow-mapSize-height={renderOpts.shadowRes}
+            castShadow={shadowsOn}
+            shadow-mapSize-width={shadowRes}
+            shadow-mapSize-height={shadowRes}
             shadow-camera-left={-60}
             shadow-camera-right={60}
             shadow-camera-top={60}
@@ -275,6 +296,7 @@ export default function GameCanvas({
             shadow-bias={-0.0002}
           />
           <World data={world} />
+          <ShadowController enabled={shadowsOn} />
           {perfOpen && <RenderStatsCollector />}
           {role === 'player' ? (
             <Player
@@ -327,8 +349,6 @@ export default function GameCanvas({
         summitY={world.summitY}
         flying={flying}
         flightUnlocked={flightUnlocked}
-        debugOpen={debugOpen}
-        onToggleDebug={() => setDebugOpen((v) => !v)}
       />
 
       <TouchControls
@@ -353,17 +373,23 @@ export default function GameCanvas({
         onClose={() => setAdminOpen(false)}
       />
 
-      <DebugPanel
-        open={debugOpen}
-        onClose={() => setDebugOpen(false)}
-        onOpenPerf={() => { setDebugOpen(false); setPerfOpen(true); document.exitPointerLock?.(); }}
+      <SettingsMenu
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        shadowsOn={shadowsOn}
+        onToggleShadows={toggleShadows}
+        onOpenPerf={() => setPerfOpen(true)}
+        onOpenNetwork={() => setNetworkOpen(true)}
+      />
+      <RenderPerfOverlay open={perfOpen} onClose={() => setPerfOpen(false)} />
+      <NetworkPerfOverlay
+        open={networkOpen}
+        onClose={() => setNetworkOpen(false)}
         players={snapshot?.players ?? []}
         selfId={selfId}
         myPing={myPing}
         snapshotCount={snapshotCount}
       />
-
-      <RenderPerfOverlay open={perfOpen} onClose={() => setPerfOpen(false)} />
 
       {paused && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30">
@@ -410,6 +436,13 @@ export default function GameCanvas({
       )}
 
       <div className="absolute top-4 right-1/2 translate-x-1/2 z-30 flex gap-2">
+        <button
+          onClick={() => { if (!settingsOpen) document.exitPointerLock?.(); setSettingsOpen((v) => !v); }}
+          title="Settings"
+          className="bg-slate-900/80 backdrop-blur border border-amber-500/30 hover:bg-slate-800 text-amber-300 text-base leading-none px-3 py-1.5 rounded-md"
+        >
+          ⚙
+        </button>
         {canAdmin && (
           <button
             onClick={() => setAdminOpen((v) => !v)}

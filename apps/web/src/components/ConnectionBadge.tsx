@@ -2,26 +2,7 @@ import { useEffect, useState } from 'react';
 import { getSocket } from '../lib/socket';
 
 export default function ConnectionBadge() {
-  const [online, setOnline] = useState(navigator.onLine);
   const [wsConnected, setWsConnected] = useState(false);
-  const [fakeOffline, setFakeOffline] = useState(() => {
-    try {
-      return sessionStorage.getItem('pwa-demo:fake-offline') === 'true';
-    } catch {
-      return false;
-    }
-  });
-
-  useEffect(() => {
-    const onOn = () => setOnline(true);
-    const onOff = () => setOnline(false);
-    window.addEventListener('online', onOn);
-    window.addEventListener('offline', onOff);
-    return () => {
-      window.removeEventListener('online', onOn);
-      window.removeEventListener('offline', onOff);
-    };
-  }, []);
 
   useEffect(() => {
     const s = getSocket();
@@ -36,32 +17,8 @@ export default function ConnectionBadge() {
     };
   }, []);
 
-  const toggleFakeOffline = () => {
-    const newState = !fakeOffline;
-    setFakeOffline(newState);
-    try {
-      sessionStorage.setItem('pwa-demo:fake-offline', String(newState));
-    } catch {
-      /* best effort */
-    }
-    window.dispatchEvent(new CustomEvent('pwa-demo:offline-toggle', { detail: { fakeOffline: newState } }));
-  };
-
-  const networkOk = online && !fakeOffline;
-
-  // Both rows wear identical padding/rounding so the network row being a
-  // hover-button doesn't shift the ws row's alignment. Only the network row
-  // gets the hover/cursor affordance.
   return (
     <div className="text-xs">
-      <button
-        type="button"
-        onClick={toggleFakeOffline}
-        className="w-full text-left px-2 py-1 rounded hover:bg-slate-800 transition"
-        title="Click to toggle offline mode for Background Sync demo"
-      >
-        <Row label="network" ok={networkOk} okLabel={fakeOffline ? 'offline (fake)' : 'online'} badLabel="offline" />
-      </button>
       <div className="px-2 py-1 rounded">
         <Row label="ws" ok={wsConnected} okLabel="connected" badLabel="disconnected" />
       </div>
