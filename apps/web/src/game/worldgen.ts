@@ -1,138 +1,137 @@
 import type { Box } from './physics';
 
+// ════════════════════════════════════════════════════════════════════════
+//  TOWER CLIMB — WORLD (hand-built)
+//
+//  A cozy village climbs the south face of a great rock spire into the sky.
+//  You switchback up the mountain on terraces (the rest stops / checkpoints),
+//  each leg a harder challenge than the last, to a crystal beacon at the top —
+//  which unlocks flight for a victory lap.
+//
+//  DESIGN RULES (learned the hard way):
+//   • Everything you can stand on or bump is a SOLID object with a matching
+//     mesh — no decorative-only bodies in the path, no floaty abstract pads.
+//   • Decoration (trees, props) lives ON terraces or at the plaza edge, never
+//     in a jump line — so you never clip through a tree mid-leap.
+//   • The climb is hand-placed; the `Route` helper only RECORDS + ASSERTS the
+//     jump graph so `worldgen.audit.ts` can independently prove it's beatable
+//     (every gap in-envelope, ≥1.6 m head clearance over every foothold).
+//
+//    Tier      y       Feel        Leg up to it
+//    Plaza     0        no-fail     —
+//    Mossledge 6        easy        rocky steps (easy jumps)        · CP1
+//    The Mill  14       medium      rope bridge + ladder            · CP2
+//    Orchard   24       med-hard    a rising lift + a leap          · CP3
+//    High Camp 35       hard        crag rocks (double jumps)       · CP4
+//    Summit    ~50      expert      clouds, sweeping ramp, crystal → BEACON
+// ════════════════════════════════════════════════════════════════════════
+
 // ────────────────────── types ──────────────────────
 
 export type MeshDesc =
   | { type: 'box'; x: number; y: number; z: number; hx: number; hy: number; hz: number; color: string; rotY?: number; cast?: boolean; receive?: boolean; emissive?: string; emissiveIntensity?: number; roughness?: number }
-  | { type: 'cone'; x: number; y: number; z: number; radius: number; height: number; color: string; rotY?: number; segments?: number; cast?: boolean }
-  | { type: 'cylinder'; x: number; y: number; z: number; radius: number; height: number; color: string; rotY?: number; segments?: number; cast?: boolean; emissive?: string; emissiveIntensity?: number }
+  | { type: 'cone'; x: number; y: number; z: number; radius: number; height: number; color: string; rotY?: number; segments?: number; cast?: boolean; emissive?: string; emissiveIntensity?: number }
+  | { type: 'cylinder'; x: number; y: number; z: number; radius: number; height: number; color: string; rotY?: number; segments?: number; cast?: boolean; emissive?: string; emissiveIntensity?: number; roughness?: number }
   | { type: 'sphere'; x: number; y: number; z: number; radius: number; color: string; cast?: boolean; emissive?: string; emissiveIntensity?: number; segments?: number };
 
-export type Windmill = { x: number; y: number; z: number; rotY: number };
+export type Windmill = { x: number; y: number; z: number; rotY: number; scale?: number };
 export type Flag = { x: number; y: number; z: number; rotY: number; color: string };
 export type SmokePuff = { x: number; y: number; z: number };
+export type Waterfall = { x: number; y: number; z: number; w: number; h: number; rotY: number };
+export type WaterWheel = { x: number; y: number; z: number; radius: number; rotY: number };
 
-export type Mover = {
-  /** current position written each frame from definition */
-  x: number; y: number; z: number;
-  hx: number; hy: number; hz: number;
+export type Mover = Box & {
+  /** x/y/z + hx/hy/hz come from Box; written each frame from the definition. */
   color: string;
-  /** Endpoints A→B; mover oscillates linearly with sine ease */
   ax: number; ay: number; az: number;
   bx: number; by: number; bz: number;
-  /** period in seconds */
   period: number;
-  /** phase offset 0..1 */
   phase: number;
-  /** previous-frame position, used by Player to carry mounted riders */
   prevX: number; prevY: number; prevZ: number;
-  /** 'platform' carries the player when standing on top; 'wall' is a hazard
-   *  that pushes the player horizontally and does not carry. */
   kind: 'platform' | 'wall';
+  style?: 'lift' | 'shuttle' | 'ramp' | 'wall' | 'cart' | 'gondola';
+  /** If set, the mover ORBITS this pivot in the x-y plane (a turning windmill /
+   *  Ferris-wheel gondola you ride up). `period` is the orbit time; `phase` is
+   *  the starting fraction around the circle. Overrides the linear A→B path. */
+  orbit?: { px: number; py: number; pz: number; radius: number };
+};
+
+/** A platform that CRACKS and falls away ~0.5 s after the local player stands
+ *  on it, then respawns a few seconds later. `triggeredAt` is mutable client
+ *  state (ms, -1 = solid/idle), set by Player and read by World for animation. */
+export type Breakaway = {
+  x: number; y: number; z: number; hx: number; hy: number; hz: number;
+  color: string;
+  triggeredAt: number;
+};
+
+export type Checkpoint = { x: number; y: number; z: number; name: string; zone: number; radius: number };
+export type Zone = { name: string; minY: number; tint: string };
+export type Edge = {
+  ax: number; ay: number; az: number;
+  bx: number; by: number; bz: number;
+  band: Band;
+  kind: 'walk' | 'jump' | 'double' | 'ladder' | 'mover' | 'shortcut' | 'stair';
 };
 
 export type WorldData = {
   boxes: Box[];
-  /** gravity-suppressing climb volumes (true ladders) */
   ladders: Box[];
-  /** time-synchronized moving platforms */
   movers: Mover[];
+  breakaways: Breakaway[];
   meshes: MeshDesc[];
   windmills: Windmill[];
   flags: Flag[];
   smoke: SmokePuff[];
+  waterfalls: Waterfall[];
+  waterwheels: WaterWheel[];
+  checkpoints: Checkpoint[];
+  zones: Zone[];
+  edges: Edge[];
   goal: { x: number; y: number; z: number };
+  summitY: number;
   maxHeight: number;
 };
 
 // ────────────────────── palette ──────────────────────
 
 const C = {
-  grass: '#9be37c',
-  grassDeep: '#65d249',
-  grassDark: '#3a9b2c',
-  dirt: '#b07a3a',
-  dirtDark: '#704a1f',
-  cobble: '#aab3bc',
-  cobbleEdge: '#5e6a76',
-  cobbleDark: '#7a8590',
-  wood: '#7a4b1e',
-  woodLight: '#a06b34',
-  woodDark: '#522e10',
-  plank: '#8a5526',
+  grass: '#9be37c', grassDeep: '#65d249', grassDark: '#3a9b2c', grassMoss: '#7bbf4e',
+  dirt: '#b07a3a', dirtDark: '#704a1f',
+  cobble: '#aab3bc', cobbleEdge: '#5e6a76', cobbleDark: '#7a8590',
+  wood: '#7a4b1e', woodLight: '#a06b34', woodDark: '#522e10', plank: '#8a5526',
 
-  wallCream: '#fff1d0',
-  wallMint: '#b9f0d4',
-  wallPink: '#ffc8e1',
-  wallSky: '#bee0ff',
-  wallLav: '#dcc8ff',
-  wallPeach: '#ffd4b3',
-  wallOlive: '#d6e0a3',
+  wallCream: '#fff1d0', wallMint: '#b9f0d4', wallPink: '#ffc8e1', wallSky: '#bee0ff',
+  wallLav: '#dcc8ff', wallPeach: '#ffd4b3', wallOlive: '#d6e0a3',
+  roofRed: '#d8451f', roofTeal: '#0f9a8d', roofCoral: '#ee7e3d', roofLav: '#7b3fd6',
+  roofPlum: '#a233a8', roofGold: '#d99826', roofBlue: '#1e63d4', roofForest: '#1b7a3a',
 
-  roofRed: '#d8451f',
-  roofTeal: '#0f9a8d',
-  roofCoral: '#ee7e3d',
-  roofLav: '#7b3fd6',
-  roofPlum: '#a233a8',
-  roofGold: '#d99826',
-  roofBlue: '#1e63d4',
-  roofForest: '#1b7a3a',
+  treeTrunk: '#5d3a17', treeTrunkLight: '#8b5a2b', treeFol: '#22a045', treeFol2: '#3fc262',
+  treeFolDark: '#157032', treeBlossom: '#ffc0cb',
 
-  treeTrunk: '#5d3a17',
-  treeTrunkLight: '#8b5a2b',
-  treeFol: '#22a045',
-  treeFol2: '#3fc262',
-  treeFolDark: '#157032',
-  treeBlossom: '#ffc0cb',
+  lanternGlow: '#ffd97a', lanternBody: '#7b2a0d',
+  mushCap: '#dc2626', mushCapPurple: '#9333ea', mushCapBlue: '#3b82f6', mushStem: '#fff6e0',
 
-  lanternGlow: '#ffd97a',
-  lanternBody: '#7b2a0d',
+  cloud: '#f8fafc', cloudEdge: '#e2e8f0',
+  crystalA: '#9a7af3', crystalB: '#c4b5fd', crystalC: '#7dd3fc', crystalD: '#fbcfe8', crystalGold: '#fde68a',
 
-  mushCap: '#dc2626',
-  mushCapPurple: '#9333ea',
-  mushCapBlue: '#3b82f6',
-  mushStem: '#fff6e0',
+  doorBrown: '#5e2d10', windowGlow: '#ffe49a', windowFrame: '#5e2d10',
+  flag1: '#ef4444', flag2: '#2563eb', flag3: '#f59e0b', flag4: '#10b981', flag5: '#a855f7',
+  smoke: '#cbd5e1', metal: '#475569', metalLight: '#9aa3ad',
+  water: '#3aa9d6', waterDeep: '#1e6fa8', haystack: '#f5d062', cabbage: '#76c25b',
+  pumpkin: '#e08530', rope: '#a87a3a', fenceWood: '#8a5526',
 
-  cloud: '#f8fafc',
-  cloudEdge: '#e2e8f0',
-
-  crystalA: '#9a7af3',
-  crystalB: '#c4b5fd',
-  crystalC: '#7dd3fc',
-  crystalD: '#fbcfe8',
-
-  doorBrown: '#5e2d10',
-  windowGlow: '#ffe49a',
-  windowFrame: '#5e2d10',
-
-  flag1: '#ef4444',
-  flag2: '#2563eb',
-  flag3: '#f59e0b',
-  flag4: '#10b981',
-  flag5: '#a855f7',
-
-  smoke: '#cbd5e1',
-
-  metal: '#475569',
-  metalLight: '#9aa3ad',
-
-  water: '#3aa9d6',
-  haystack: '#f5d062',
-  cabbage: '#76c25b',
-  pumpkin: '#e08530',
-  rope: '#a87a3a',
-
-  fenceWood: '#8a5526',
+  // the mountain
+  rock: '#8d7a63', rockDark: '#6b5a45', rockLight: '#a8957b', rockMoss: '#6f9a4e',
+  campfire: '#ff7a1a', tent: '#c2613a',
+  cpCloth: '#22c55e', cpClothDim: '#15803d',
 };
 
-// ────────────────────── rng ──────────────────────
+// ────────────────────── rng (decor only) ──────────────────────
 
 function makeRng(seed: number) {
   let s = seed >>> 0;
-  return () => {
-    s = (s * 1664525 + 1013904223) >>> 0;
-    return s / 0x100000000;
-  };
+  return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 0x100000000; };
 }
 
 // ────────────────────── primitives ──────────────────────
@@ -141,42 +140,23 @@ function solidBox(out: WorldData, x: number, y: number, z: number, hx: number, h
   out.boxes.push({ x, y, z, hx, hy, hz });
   out.meshes.push({ type: 'box', x, y, z, hx, hy, hz, color, rotY: opts.rotY, roughness: opts.rough, cast: opts.cast, receive: opts.receive });
 }
-
 function decoBox(out: WorldData, x: number, y: number, z: number, hx: number, hy: number, hz: number, color: string, opts: { rotY?: number; emissive?: string; emissiveIntensity?: number; rough?: number; cast?: boolean } = {}) {
   out.meshes.push({ type: 'box', x, y, z, hx, hy, hz, color, rotY: opts.rotY, emissive: opts.emissive, emissiveIntensity: opts.emissiveIntensity, roughness: opts.rough, cast: opts.cast });
 }
-
-function decoCone(out: WorldData, x: number, y: number, z: number, radius: number, height: number, color: string, opts: { rotY?: number; segments?: number; cast?: boolean } = {}) {
-  out.meshes.push({ type: 'cone', x, y, z, radius, height, color, rotY: opts.rotY, segments: opts.segments, cast: opts.cast });
+function decoCone(out: WorldData, x: number, y: number, z: number, radius: number, height: number, color: string, opts: { rotY?: number; segments?: number; cast?: boolean; emissive?: string; emissiveIntensity?: number } = {}) {
+  out.meshes.push({ type: 'cone', x, y, z, radius, height, color, rotY: opts.rotY, segments: opts.segments, cast: opts.cast, emissive: opts.emissive, emissiveIntensity: opts.emissiveIntensity });
 }
-
 function decoCyl(out: WorldData, x: number, y: number, z: number, radius: number, height: number, color: string, opts: { rotY?: number; segments?: number; cast?: boolean; emissive?: string; emissiveIntensity?: number } = {}) {
   out.meshes.push({ type: 'cylinder', x, y, z, radius, height, color, rotY: opts.rotY, segments: opts.segments, cast: opts.cast, emissive: opts.emissive, emissiveIntensity: opts.emissiveIntensity });
 }
-
 function decoSphere(out: WorldData, x: number, y: number, z: number, radius: number, color: string, opts: { cast?: boolean; emissive?: string; emissiveIntensity?: number; segments?: number } = {}) {
   out.meshes.push({ type: 'sphere', x, y, z, radius, color, cast: opts.cast, emissive: opts.emissive, emissiveIntensity: opts.emissiveIntensity, segments: opts.segments });
 }
 
-/** Create a TRUE LADDER: gravity-free volume the player climbs by holding W,
- *  plus decorative wood frame and rungs. Volume spans baseY → topY along the
- *  vertical axis. CRUCIAL: the volume extends EXTRA above topY so the player
- *  exits ABOVE the destination platform and falls cleanly onto it (rather
- *  than being shoved sideways during the climb-through-platform phase). */
 const LADDER_OVERSHOOT = 1.2;
-
-function ladderVolume(out: WorldData, opts: {
-  cx: number; cz: number;
-  /** y of the bottom of the ladder */
-  baseY: number;
-  /** y of the destination platform top — the volume extends LADDER_OVERSHOOT above this */
-  topY: number;
-  /** orientation — face the ladder away from this normal direction. Player
-   *  approaches from +normal. Volume is thin along normal, wide perpendicular. */
-  faceX: number; faceZ: number;
-  width?: number;
-}) {
-  const w = (opts.width ?? 0.9) / 2;
+/** A climb volume recessed against a wall, with a wooden frame + rungs. */
+function ladderVolume(out: WorldData, opts: { cx: number; cz: number; baseY: number; topY: number; faceX: number; faceZ: number; width?: number }) {
+  const w = (opts.width ?? 0.95) / 2;
   const perp: [number, number] = [-opts.faceZ, opts.faceX];
   const volTopY = opts.topY + LADDER_OVERSHOOT;
   const cy = (opts.baseY + volTopY) / 2;
@@ -185,975 +165,518 @@ function ladderVolume(out: WorldData, opts: {
   const hxVol = Math.abs(opts.faceX) > 0.5 ? halfThickness : w;
   const hzVol = Math.abs(opts.faceZ) > 0.5 ? halfThickness : w;
   out.ladders.push({ x: opts.cx, y: cy, z: opts.cz, hx: hxVol, hy, hz: hzVol });
-
-  // Two vertical wood posts (visual only)
   for (const sign of [1, -1] as const) {
-    const px = opts.cx + perp[0] * w * sign;
-    const pz = opts.cz + perp[1] * w * sign;
-    decoCyl(out, px, (opts.baseY + opts.topY) / 2, pz, 0.06, opts.topY - opts.baseY + 0.2, C.wood);
+    decoCyl(out, opts.cx + perp[0] * w * sign, (opts.baseY + opts.topY) / 2, opts.cz + perp[1] * w * sign, 0.07, opts.topY - opts.baseY + 0.2, C.wood);
   }
-  // Rungs every 0.5m up to (but not past) opts.topY — purely visual
-  const rungSpacing = 0.5;
-  const nRungs = Math.max(2, Math.floor((opts.topY - opts.baseY) / rungSpacing));
-  for (let i = 1; i <= nRungs; i++) {
-    const y = opts.baseY + i * rungSpacing;
-    const rotY = Math.atan2(opts.faceZ, opts.faceX) + Math.PI / 2;
-    decoBox(out, opts.cx, y, opts.cz, w - 0.05, 0.04, 0.03, C.woodLight, { rotY });
-  }
-  // Faint emissive "climb here" hint along the front
-  decoBox(out, opts.cx + opts.faceX * 0.36, (opts.baseY + opts.topY) / 2, opts.cz + opts.faceZ * 0.36, hxVol * 0.6, (opts.topY - opts.baseY) / 2, hzVol * 0.6, '#000000', { emissive: '#fbbf24', emissiveIntensity: 0.05, cast: false });
+  const rotY = Math.atan2(opts.faceZ, opts.faceX) + Math.PI / 2;
+  const nRungs = Math.max(2, Math.floor((opts.topY - opts.baseY) / 0.45));
+  for (let i = 1; i <= nRungs; i++) decoBox(out, opts.cx, opts.baseY + i * 0.45, opts.cz, w - 0.05, 0.045, 0.04, C.woodLight, { rotY });
 }
 
-/** Spawn a moving platform between two world-space endpoints. */
-function mover(out: WorldData, opts: {
-  ax: number; ay: number; az: number;
-  bx: number; by: number; bz: number;
-  hx: number; hy: number; hz: number;
-  period: number;
-  phase?: number;
-  color?: string;
-  kind?: 'platform' | 'wall';
-}) {
+/** Breakaway (ice) timing — shared by Player (collision) and World (animation). */
+const BREAK_DELAY_MS = 550;     // crack → start falling
+const BREAK_RESPAWN_MS = 3500;  // fully gone → respawn
+export { BREAK_DELAY_MS, BREAK_RESPAWN_MS };
+
+function mover(out: WorldData, o: { ax?: number; ay?: number; az?: number; bx?: number; by?: number; bz?: number; hx: number; hy: number; hz: number; period: number; phase?: number; color?: string; kind?: 'platform' | 'wall'; style?: Mover['style']; orbit?: { px: number; py: number; pz: number; radius: number } }) {
+  const ax = o.ax ?? 0, ay = o.ay ?? 0, az = o.az ?? 0, bx = o.bx ?? ax, by = o.by ?? ay, bz = o.bz ?? az;
+  let ix = ax, iy = ay, iz = az;
+  if (o.orbit) { const a = (o.phase ?? 0) * Math.PI * 2; ix = o.orbit.px + Math.cos(a) * o.orbit.radius; iy = o.orbit.py + Math.sin(a) * o.orbit.radius; iz = o.orbit.pz; }
   out.movers.push({
-    x: opts.ax, y: opts.ay, z: opts.az,
-    hx: opts.hx, hy: opts.hy, hz: opts.hz,
-    color: opts.color ?? C.wood,
-    ax: opts.ax, ay: opts.ay, az: opts.az,
-    bx: opts.bx, by: opts.by, bz: opts.bz,
-    period: opts.period,
-    phase: opts.phase ?? 0,
-    prevX: opts.ax, prevY: opts.ay, prevZ: opts.az,
-    kind: opts.kind ?? 'platform',
+    x: ix, y: iy, z: iz, hx: o.hx, hy: o.hy, hz: o.hz, color: o.color ?? C.woodLight,
+    ax, ay, az, bx, by, bz, period: o.period, phase: o.phase ?? 0,
+    prevX: ix, prevY: iy, prevZ: iz, kind: o.kind ?? 'platform',
+    style: o.style ?? (o.kind === 'wall' ? 'wall' : 'shuttle'), orbit: o.orbit,
   });
 }
 
-// ────────────────────── features: buildings ──────────────────────
+/** An ice platform that cracks and drops when the local player stands on it.
+ *  `topY` is the standable surface. Rendered + collided via out.breakaways. */
+function iceBreakaway(out: WorldData, x: number, z: number, topY: number, hx: number, hz: number) {
+  out.breakaways.push({ x, y: topY - 0.18, z, hx, hy: 0.18, hz, color: '#bfe8ff', triggeredAt: -1 });
+}
 
-type CottageOpts = {
-  cx: number; cz: number; baseY: number;
-  wallW: number; wallD: number; wallH: number;
-  roofH: number;
-  wallColor: string; roofColor: string;
-  doorFace: 'north' | 'south' | 'east' | 'west';
-  windowFaces?: Array<'north' | 'south' | 'east' | 'west'>;
-  /** garden patch in front of door (visual) */
-  hasGarden?: boolean;
+/** A turning wheel of `n` level gondola platforms orbiting `pivot` in the x-y
+ *  plane — ride one up. Returns the lowest/highest ride points for the Route to
+ *  board at the bottom and step off at the top. Adds a decorative hub + sails. */
+function gondolaWheel(out: WorldData, pivot: { x: number; y: number; z: number }, radius: number, n: number, period: number, color: string): { bottom: { x: number; y: number; z: number }; top: { x: number; y: number; z: number }; px: number; py: number; pz: number; radius: number } {
+  out.windmills.push({ x: pivot.x, y: pivot.y, z: pivot.z + 0.1, rotY: Math.PI / 2, scale: radius / 2.6 });
+  decoCyl(out, pivot.x, pivot.y, pivot.z, 0.4, 0.6, C.metalLight, { rotY: Math.PI / 2, segments: 12 });
+  const gh = 0.16;
+  for (let i = 0; i < n; i++) {
+    mover(out, { hx: 1.25, hy: gh, hz: 1.25, period, phase: i / n, color, style: 'gondola', orbit: { px: pivot.x, py: pivot.y, pz: pivot.z, radius } });
+  }
+  return { bottom: { x: pivot.x, y: pivot.y - radius + gh, z: pivot.z }, top: { x: pivot.x, y: pivot.y + radius + gh, z: pivot.z }, px: pivot.x, py: pivot.y, pz: pivot.z, radius };
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  JUMP ENVELOPE + ROUTE (verification only — placement is by hand)
+// ════════════════════════════════════════════════════════════════════════
+const G = 28, VJ = 13, SPEED = 7;
+function reachSingle(dh: number): number {
+  const disc = VJ * VJ - 2 * G * dh;
+  if (disc < 0) return 0;
+  return SPEED * ((VJ + Math.sqrt(disc)) / G);
+}
+export type Band = 'walk' | 'easy' | 'medium' | 'hard' | 'double';
+const BANDS: Record<Band, { dh: number; horiz: number; jumps: 1 | 2 }> = {
+  walk: { dh: 0.6, horiz: 1.3, jumps: 1 },
+  easy: { dh: 2.0, horiz: 3.0, jumps: 1 },
+  medium: { dh: 2.5, horiz: 3.8, jumps: 1 },
+  hard: { dh: 2.8, horiz: 4.3, jumps: 1 },
+  double: { dh: 4.2, horiz: 5.2, jumps: 2 },
 };
+export { BANDS };
 
-function faceVec(face: 'north' | 'south' | 'east' | 'west'): [number, number] {
-  switch (face) {
-    case 'north': return [0, -1];
-    case 'south': return [0, 1];
-    case 'east':  return [1, 0];
-    case 'west':  return [-1, 0];
+function halfAlong(hx: number, hz: number, dx: number, dz: number): number {
+  return Math.abs(dx) * hx + Math.abs(dz) * hz;
+}
+
+/** Records + asserts the jump graph between hand-placed footholds. */
+class Route {
+  out: WorldData;
+  x: number; y: number; z: number; hx: number; hz: number;
+  label: string;
+  /** spiral state: footholds wrap around (cx,cz) as `angle` advances. */
+  cx = 0; cz = 0; angle = 0;
+  constructor(out: WorldData, s: { x: number; y: number; z: number; hx: number; hz: number; label?: string }) {
+    this.out = out; this.x = s.x; this.y = s.y; this.z = s.z; this.hx = s.hx; this.hz = s.hz; this.label = s.label ?? 'route';
+  }
+  /** Move the cursor to an existing foothold, asserting reachability + recording the edge. */
+  link(x: number, y: number, z: number, hx: number, hz: number, band: Band, kind: Edge['kind'] = 'jump'): this {
+    const ddx = x - this.x, ddz = z - this.z, len = Math.hypot(ddx, ddz) || 1;
+    const ux = ddx / len, uz = ddz / len;
+    const gap = Math.max(0, len - halfAlong(this.hx, this.hz, ux, uz) - halfAlong(hx, hz, ux, uz));
+    const rise = y - this.y;
+    if (kind === 'jump' || kind === 'double' || kind === 'walk' || kind === 'shortcut') {
+      const b = BANDS[kind === 'shortcut' ? 'double' : band];
+      if (rise > b.dh + 1e-6) throw new Error(`[${this.label}] ${kind} to (${x},${y},${z}): rise ${rise.toFixed(2)} > ${band} dh ${b.dh}`);
+      if (gap > b.horiz + 1e-6) throw new Error(`[${this.label}] ${kind} to (${x},${y},${z}): gap ${gap.toFixed(2)} > ${band} horiz ${b.horiz}`);
+      if (b.jumps === 1 && gap > reachSingle(Math.max(0, rise)) * 0.92) throw new Error(`[${this.label}] ${kind} to (${x},${y},${z}): gap ${gap.toFixed(2)} near single-jump limit ${reachSingle(Math.max(0, rise)).toFixed(2)}`);
+    }
+    this.out.edges.push({ ax: this.x, ay: this.y, az: this.z, bx: x, by: y, bz: z, band, kind });
+    this.x = x; this.y = y; this.z = z; this.hx = hx; this.hz = hz;
+    return this;
+  }
+  /** Advance `dDeg` around the OPEN centre at orbit radius `R`, rising `rise`,
+   *  dropping a free-floating island foothold. The climb spirals up; the centre
+   *  is open sky (just a slender decorative peak), so the camera always has air
+   *  behind the player. Reachability is asserted. */
+  arc(o: { dDeg: number; R: number; rise: number; hx: number; hz: number; band: Band; kind?: Edge['kind']; skin: (cx: number, cz: number, topY: number, hx: number, hz: number) => void }): this {
+    this.angle += (o.dDeg * Math.PI) / 180;
+    const ca = Math.cos(this.angle), sa = Math.sin(this.angle);
+    const nx = this.cx + ca * o.R, nz = this.cz + sa * o.R, ny = this.y + o.rise;
+    o.skin(nx, nz, ny, o.hx, o.hz);
+    return this.link(nx, ny, nz, o.hx, o.hz, o.band, o.kind);
+  }
+  checkpoint(name: string, zone: number, radius = 2.6): this {
+    this.out.checkpoints.push({ x: this.x, y: this.y, z: this.z, name, zone, radius });
+    checkpointBanner(this.out, this.x, this.y, this.z);
+    return this;
   }
 }
 
-/** A cottage with a FLAT WALKABLE ROOF and a small decorative pyramid cap.
- *  - Walls: 2.5m tall (one comfortable single jump from ground)
- *  - Roof: flat box, slightly wider than walls, walkable
- *  - Roof cap: small flatter pyramid in the center, NO collider so it doesn't
- *    push you off the roof when you walk near it
- *  Designed so you can hop up onto any cottage. */
-function cottage(out: WorldData, opts: CottageOpts) {
-  const { cx, cz, baseY, wallW, wallD, wallH, roofH, wallColor, roofColor } = opts;
-  const wallCY = baseY + wallH / 2;
+// ════════════════════════════════════════════════════════════════════════
+//  SOLID STRUCTURE HELPERS  (collider == visible mesh)
+// ════════════════════════════════════════════════════════════════════════
+
+/** A solid standable platform/terrace. `topY` is the walkable surface.
+ *  Has a rock/wood skirt below so it never looks like it floats. */
+function terrace(out: WorldData, cx: number, cz: number, topY: number, hx: number, hz: number, opts: {
+  top?: 'grass' | 'cobble' | 'wood' | 'camp'; skirt?: number; skirtColor?: string; rail?: ('n' | 's' | 'e' | 'w')[];
+} = {}) {
+  const skirt = opts.skirt ?? 1.4;
+  const skirtColor = opts.skirtColor ?? C.rock;
+  // solid body (the collider). top of body == topY.
+  solidBox(out, cx, topY - skirt / 2, cz, hx, skirt / 2, hz, skirtColor, { rough: 1, receive: true });
+  // a darker base lip for grounding
+  decoBox(out, cx, topY - skirt + 0.05, cz, hx + 0.08, 0.12, hz + 0.08, C.rockDark, { cast: false, rough: 1 });
+  // walkable top skin
+  const topColor = opts.top === 'cobble' ? C.cobble : opts.top === 'wood' ? C.woodLight : opts.top === 'camp' ? C.dirt : C.grass;
+  decoBox(out, cx, topY + 0.04, cz, hx * 0.99, 0.06, hz * 0.99, topColor, { cast: false, rough: 0.95 });
+  if (opts.top === 'grass') decoBox(out, cx, topY + 0.09, cz, hx * 0.7, 0.04, hz * 0.7, C.grassDeep, { cast: false });
+  // edge trim
+  decoBox(out, cx, topY + 0.08, cz, hx + 0.05, 0.05, hz + 0.05, C.rockDark, { cast: false });
+  // railings on chosen edges (visual)
+  for (const e of opts.rail ?? []) {
+    const along = e === 'n' || e === 's' ? hx : hz;
+    const n = Math.max(2, Math.round(along));
+    const ez = e === 'n' ? cz - hz : e === 's' ? cz + hz : cz;
+    const ex = e === 'w' ? cx - hx : e === 'e' ? cx + hx : cx;
+    for (let i = 0; i <= n; i++) {
+      const t = (i / n) * 2 - 1;
+      const px = e === 'n' || e === 's' ? cx + t * hx : ex;
+      const pz = e === 'e' || e === 'w' ? cz + t * hz : ez;
+      decoCyl(out, px, topY + 0.45, pz, 0.05, 0.8, C.wood, { cast: false });
+    }
+  }
+}
+
+/** A SOLID segment of the central mountain spire (collider + detailed rock on
+ *  all four faces). Footholds cantilever off it as the climb wraps around. The
+ *  faces are vertical so a cantilevered ledge never gets an overhang head-bump. */
+function spireSeg(out: WorldData, cx: number, cz: number, baseY: number, topY: number, half: number, opts: { snow?: boolean; rock?: string } = {}) {
+  const cy = (baseY + topY) / 2, hy = (topY - baseY) / 2, span = topY - baseY;
+  const rock = opts.rock ?? C.rock, dark = shadeColor(rock, 0.72), light = shadeColor(rock, 1.18);
+  solidBox(out, cx, cy, cz, half, hy, half, rock, { rough: 1, receive: true });
+  // strata bands wrapping all four faces (light/dark layering for depth)
+  const bands = Math.max(2, Math.round(span / 3.0));
+  for (let i = 0; i < bands; i++) {
+    const by = baseY + (i + 0.5) / bands * span, bh = span / bands * 0.3, col = i % 2 ? dark : light;
+    decoBox(out, cx, by, cz + half + 0.02, half * 0.95, bh, 0.12, col, { cast: false });
+    decoBox(out, cx, by, cz - half - 0.02, half * 0.95, bh, 0.12, col, { cast: false });
+    decoBox(out, cx + half + 0.02, by, cz, 0.12, bh, half * 0.95, col, { cast: false });
+    decoBox(out, cx - half - 0.02, by, cz, 0.12, bh, half * 0.95, col, { cast: false });
+  }
+  // boulders clinging to the faces (varied sizes, all the way up)
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2 + 0.3, by = baseY + (((i * 41) % 100) / 100) * span * 0.85 + 0.6, s = 0.4 + (i % 3) * 0.25;
+    decoBox(out, cx + Math.cos(a) * (half + 0.05), by, cz + Math.sin(a) * (half + 0.05), s, s * 1.15, s, i % 2 ? dark : light, { cast: false, rough: 1 });
+  }
+  // moss tufts + a couple of craggy spikes
+  for (let i = 0; i < 5; i++) { const a = (i / 5) * Math.PI * 2 + 0.5; decoBox(out, cx + Math.cos(a) * (half + 0.04), baseY + (0.2 + (i % 3) * 0.22) * span, cz + Math.sin(a) * (half + 0.04), 0.5, 0.28, 0.16, C.rockMoss, { cast: false }); }
+  decoCone(out, cx - half * 0.3, topY + 0.5, cz - half * 0.2, half * 0.32, 1.4, dark, { segments: 5 });
+  decoCone(out, cx + half * 0.3, topY + 0.85, cz + half * 0.15, half * 0.3, 1.9, light, { segments: 5 });
+  if (opts.snow) decoBox(out, cx, topY + 0.05, cz, half * 0.96, 0.2, half * 0.96, '#eef4f8', { cast: false });
+}
+
+type CottageOpts = { cx: number; cz: number; baseY: number; wallW: number; wallD: number; wallH: number; wallColor: string; roofColor: string; doorFace: 'north' | 'south' | 'east' | 'west'; walkRoof?: boolean };
+function faceVec(f: 'north' | 'south' | 'east' | 'west'): [number, number] {
+  return f === 'north' ? [0, -1] : f === 'south' ? [0, 1] : f === 'east' ? [1, 0] : [-1, 0];
+}
+/** A solid cottage. If walkRoof, the roof is a flat walkable deck. */
+function cottage(out: WorldData, o: CottageOpts) {
+  const { cx, cz, baseY, wallW, wallD, wallH, wallColor, roofColor } = o;
+  solidBox(out, cx, baseY + wallH / 2, cz, wallW / 2, wallH / 2, wallD / 2, wallColor, { rough: 0.9 });
   const wallTop = baseY + wallH;
-
-  // Walls
-  solidBox(out, cx, wallCY, cz, wallW / 2, wallH / 2, wallD / 2, wallColor, { rough: 0.9 });
-
-  // Flat roof platform — walkable. Slightly wider than walls (overhang).
-  const roofPlatHy = 0.08;
-  const roofPlatHx = wallW / 2 + 0.25;
-  const roofPlatHz = wallD / 2 + 0.25;
-  const roofTopY = wallTop + roofPlatHy * 2;        // top surface of the roof
-  solidBox(out, cx, wallTop + roofPlatHy, cz, roofPlatHx, roofPlatHy, roofPlatHz, C.woodLight, { rough: 0.9 });
-
-  // Decorative trim around the roof edge
-  decoBox(out, cx, roofTopY + 0.04, cz, roofPlatHx + 0.05, 0.04, roofPlatHz + 0.05, C.woodDark, { cast: false });
-
-  // Small flatter pyramid cap in the center — decorative, no collider so the
-  // player can walk all the way around it on the roof.
-  const capR = Math.min(wallW, wallD) / 2 - 0.3;     // smaller than the roof
-  const capH = roofH;                                  // flatter than before (was 1.5+, now ~1.0)
-  decoCone(out, cx, roofTopY + capH / 2, cz, capR * Math.SQRT2, capH, roofColor, { rotY: Math.PI / 4, segments: 4 });
-
-  // Chimney + animated smoke puff (on the flat roof, off to one side)
-  const chX = cx + wallW / 4;
-  const chZ = cz - wallD / 4;
-  const chY = roofTopY + 0.5;
-  decoBox(out, chX, chY, chZ, 0.22, 0.5, 0.22, '#7f1d1d');
-  decoBox(out, chX, chY + 0.52, chZ, 0.27, 0.05, 0.27, '#451a03');
-  out.smoke.push({ x: chX, y: chY + 1.0, z: chZ });
-
-  // Door
-  const [dnx, dnz] = faceVec(opts.doorFace);
-  const onZFace = Math.abs(dnz) > 0;
-  const dx = onZFace ? 0 : dnx * (wallW / 2 + 0.01);
-  const dz = onZFace ? dnz * (wallD / 2 + 0.01) : 0;
-  decoBox(out, cx + dx, baseY + 0.7, cz + dz, onZFace ? 0.35 : 0.04, 0.7, onZFace ? 0.04 : 0.35, C.doorBrown);
-  decoBox(out, cx + dx * 1.05, baseY + 0.65, cz + dz * 1.05, onZFace ? 0.05 : 0.02, 0.05, onZFace ? 0.02 : 0.05, '#fbbf24');
-  // door frame
-  decoBox(out, cx + dx, baseY + 0.7, cz + dz, onZFace ? 0.42 : 0.05, 0.78, onZFace ? 0.05 : 0.42, C.windowFrame);
-
-  // Windows on chosen faces (default: opposite of door)
-  const windowFaces = opts.windowFaces ?? (() => {
-    if (opts.doorFace === 'north' || opts.doorFace === 'south') return ['east', 'west'] as Array<'north' | 'south' | 'east' | 'west'>;
-    return ['north', 'south'] as Array<'north' | 'south' | 'east' | 'west'>;
-  })();
-  for (const wf of windowFaces) {
-    const [wnx, wnz] = faceVec(wf);
-    const onZF = Math.abs(wnz) > 0;
-    const wx = onZF ? 0 : wnx * (wallW / 2 + 0.01);
-    const wz = onZF ? wnz * (wallD / 2 + 0.01) : 0;
-    decoBox(out, cx + wx, baseY + wallH * 0.62, cz + wz, onZF ? 0.42 : 0.05, 0.42, onZF ? 0.05 : 0.42, C.windowFrame);
-    decoBox(out, cx + wx * 1.01, baseY + wallH * 0.62, cz + wz * 1.01, onZF ? 0.32 : 0.03, 0.32, onZF ? 0.03 : 0.32, C.windowGlow, { emissive: C.windowGlow, emissiveIntensity: 0.65 });
+  if (o.walkRoof) {
+    solidBox(out, cx, wallTop + 0.08, cz, wallW / 2 + 0.25, 0.08, wallD / 2 + 0.25, C.woodLight, { rough: 0.9 });
+    decoBox(out, cx, wallTop + 0.18, cz, wallW / 2 + 0.3, 0.04, wallD / 2 + 0.3, C.woodDark, { cast: false });
+    const chX = cx + wallW / 4, chZ = cz - wallD / 4;
+    decoBox(out, chX, wallTop + 0.6, chZ, 0.22, 0.5, 0.22, '#7f1d1d');
+    out.smoke.push({ x: chX, y: wallTop + 1.1, z: chZ });
+  } else {
+    decoCone(out, cx, wallTop + 0.7, cz, Math.min(wallW, wallD) * 0.75, 1.4, roofColor, { rotY: Math.PI / 4, segments: 4 });
+    const chX = cx + wallW / 4, chZ = cz - wallD / 4;
+    decoBox(out, chX, wallTop + 0.9, chZ, 0.2, 0.6, 0.2, '#7f1d1d');
+    out.smoke.push({ x: chX, y: wallTop + 1.5, z: chZ });
   }
-
-  // Small porch + step in front of the door (decorative)
-  const px = cx + dnx * (wallW / 2 + 0.7);
-  const pz = cz + dnz * (wallD / 2 + 0.7);
-  decoBox(out, px, baseY + 0.07, pz, onZFace ? 0.7 : 0.4, 0.07, onZFace ? 0.4 : 0.7, C.cobble);
-  decoBox(out, px, baseY + 0.18, pz, onZFace ? 0.55 : 0.3, 0.06, onZFace ? 0.3 : 0.55, C.cobbleEdge);
-
-  // Garden patch
-  if (opts.hasGarden) {
-    const gx = cx + dnx * (wallW / 2 + 1.6);
-    const gz = cz + dnz * (wallD / 2 + 1.6);
-    decoBox(out, gx, 0.06, gz, 0.8, 0.05, 0.8, C.dirtDark);
-    decoSphere(out, gx - 0.3, 0.18, gz + 0.2, 0.18, C.cabbage);
-    decoSphere(out, gx + 0.3, 0.16, gz - 0.1, 0.16, C.cabbage);
-    decoSphere(out, gx + 0.1, 0.2, gz + 0.3, 0.2, C.pumpkin);
-    decoSphere(out, gx - 0.2, 0.18, gz - 0.3, 0.18, C.cabbage);
+  // door + windows
+  const [dnx, dnz] = faceVec(o.doorFace);
+  const onZ = Math.abs(dnz) > 0;
+  const dx = onZ ? 0 : dnx * (wallW / 2 + 0.01), dz = onZ ? dnz * (wallD / 2 + 0.01) : 0;
+  decoBox(out, cx + dx, baseY + 0.7, cz + dz, onZ ? 0.35 : 0.04, 0.7, onZ ? 0.04 : 0.35, C.doorBrown);
+  for (const wf of (o.doorFace === 'north' || o.doorFace === 'south' ? ['east', 'west'] : ['north', 'south']) as ('north' | 'south' | 'east' | 'west')[]) {
+    const [wnx, wnz] = faceVec(wf); const oz = Math.abs(wnz) > 0;
+    const wx = oz ? 0 : wnx * (wallW / 2 + 0.02), wz = oz ? wnz * (wallD / 2 + 0.02) : 0;
+    decoBox(out, cx + wx, baseY + wallH * 0.6, cz + wz, oz ? 0.34 : 0.03, 0.34, oz ? 0.03 : 0.34, C.windowGlow, { emissive: C.windowGlow, emissiveIntensity: 0.6 });
+    decoBox(out, cx + wx * 0.99, baseY + wallH * 0.6, cz + wz * 0.99, oz ? 0.4 : 0.05, 0.4, oz ? 0.05 : 0.4, C.windowFrame, { cast: false });
   }
 }
 
-/** A flight of stairs ascending from (startX, startZ) along (dirX, dirZ). */
-function stairFlight(out: WorldData, opts: {
-  startX: number; startZ: number;
-  dirX: number; dirZ: number;
-  steps: number; stepRise: number; stepRun: number;
-  width: number;
-  color: string; railColor?: string;
-}) {
-  for (let i = 0; i < opts.steps; i++) {
-    const cx = opts.startX + opts.dirX * (i + 0.5) * opts.stepRun;
-    const cz = opts.startZ + opts.dirZ * (i + 0.5) * opts.stepRun;
-    const topY = (i + 1) * opts.stepRise;
-    const hy = topY / 2;
-    const cy = topY - hy;
-    const hxStep = Math.abs(opts.dirX) > 0.5 ? opts.stepRun / 2 : opts.width / 2;
-    const hzStep = Math.abs(opts.dirZ) > 0.5 ? opts.stepRun / 2 : opts.width / 2;
-    solidBox(out, cx, cy, cz, hxStep, hy, hzStep, opts.color, { rough: 0.85 });
-    if (opts.railColor && i % 2 === 0) {
-      const perp: [number, number] = [-opts.dirZ, opts.dirX];
-      decoCyl(out, cx + perp[0] * (opts.width / 2 + 0.04), topY + 0.3, cz + perp[1] * (opts.width / 2 + 0.04), 0.04, 0.6, opts.railColor);
-      decoCyl(out, cx - perp[0] * (opts.width / 2 + 0.04), topY + 0.3, cz - perp[1] * (opts.width / 2 + 0.04), 0.04, 0.6, opts.railColor);
-    }
-  }
+/** A floating crag rock — solid, grass-topped, with a rocky underside spike. */
+function cragRock(out: WorldData, cx: number, cz: number, topY: number, hx: number, hz: number) {
+  solidBox(out, cx, topY - 0.4, cz, hx, 0.4, hz, C.rock, { rough: 1 });
+  decoBox(out, cx, topY + 0.03, cz, hx * 0.96, 0.06, hz * 0.96, C.grassDeep, { cast: false });
+  decoBox(out, cx, topY + 0.08, cz, hx * 0.6, 0.04, hz * 0.6, C.grass, { cast: false });
+  decoCone(out, cx, topY - 1.3, cz, Math.min(hx, hz) * 0.7, 1.6, C.rockDark, { segments: 5, cast: false });
+  decoBox(out, cx, topY + 0.06, cz, hx + 0.04, 0.04, hz + 0.04, C.rockDark, { cast: false });
 }
 
-// (the old rung-stack `ladder()` helper has been replaced by `ladderVolume` above)
-
-// ────────────────────── features: trees ──────────────────────
-
-function tree(out: WorldData, opts: { x: number; z: number; height: number; trunk?: string; foliage?: string; }) {
-  const trunkR = 0.32 + (opts.height / 6) * 0.1;
-  const trunkH = opts.height;
-  const trunkC = opts.trunk ?? C.treeTrunk;
-  const folC = opts.foliage ?? C.treeFol;
-  decoCyl(out, opts.x, trunkH / 2, opts.z, trunkR, trunkH, trunkC, { segments: 10 });
-  out.boxes.push({ x: opts.x, y: trunkH / 2, z: opts.z, hx: trunkR * 0.85, hy: trunkH / 2, hz: trunkR * 0.85 });
-  const folBase = trunkH - 0.2;
-  decoSphere(out, opts.x, folBase + 0.6, opts.z, 1.3, folC);
-  decoSphere(out, opts.x - 0.7, folBase + 0.4, opts.z + 0.3, 1.0, folC === C.treeFol ? C.treeFol2 : folC);
-  decoSphere(out, opts.x + 0.6, folBase + 0.5, opts.z - 0.4, 1.0, folC === C.treeFol ? C.treeFol2 : folC);
-  decoSphere(out, opts.x + 0.1, folBase + 1.4, opts.z + 0.1, 0.9, folC);
+/** A soft solid cloud platform — flat collider top + puffy decor overhang. */
+function cloudPlatform(out: WorldData, cx: number, cz: number, topY: number, hx: number, hz: number) {
+  solidBox(out, cx, topY - 0.18, cz, hx, 0.18, hz, C.cloud, { rough: 1 });
+  const r = Math.max(hx, hz);
+  decoSphere(out, cx - hx * 0.5, topY - 0.1, cz, r * 0.6, C.cloud, { cast: false });
+  decoSphere(out, cx + hx * 0.5, topY - 0.1, cz + hz * 0.2, r * 0.65, C.cloud, { cast: false });
+  decoSphere(out, cx, topY - 0.1, cz - hz * 0.5, r * 0.55, C.cloud, { cast: false });
+  decoSphere(out, cx - hx * 0.2, topY - 0.05, cz + hz * 0.4, r * 0.4, C.cloudEdge, { cast: false });
 }
 
-function blossomTree(out: WorldData, x: number, z: number, height: number) {
+/** A crystal spire with a flat landable cap at `topY`. */
+function crystalSpire(out: WorldData, cx: number, cz: number, topY: number, half: number, height = 2.4, capColor = C.crystalC) {
+  const colors = [C.crystalA, C.crystalB, C.crystalC, C.crystalD];
+  const c = colors[Math.floor(Math.abs(cx * 7 + cz * 13)) % colors.length];
+  solidBox(out, cx, topY - 0.12, cz, half, 0.12, half, capColor, { rough: 0.25 });
+  decoCone(out, cx, topY - height / 2 - 0.12, cz, half + 0.15, height, c, { segments: 6, emissive: c, emissiveIntensity: 0.15, cast: false });
+  decoCone(out, cx, topY + 0.5, cz, half * 0.6, 0.9, C.crystalB, { segments: 6, emissive: C.crystalB, emissiveIntensity: 0.2, cast: false });
+}
+
+/** A free-floating island: solid grass/themed top + a tapering rocky underside
+ *  so it reads as a chunk torn from the world and set adrift. `topY` is the
+ *  standable surface; `top`/`side` set the district vibe. */
+function islet(out: WorldData, cx: number, cz: number, topY: number, hx: number, hz: number, top: string, side: string) {
+  solidBox(out, cx, topY - 0.35, cz, hx, 0.35, hz, side, { rough: 1, receive: true });
+  decoBox(out, cx, topY + 0.03, cz, hx * 0.97, 0.06, hz * 0.97, top, { cast: false, rough: 0.95 });
+  decoBox(out, cx, topY + 0.07, cz, hx * 0.66, 0.04, hz * 0.66, shadeColor(top, 1.1), { cast: false });
+  decoBox(out, cx, topY + 0.05, cz, hx + 0.05, 0.05, hz + 0.05, shadeColor(side, 0.8), { cast: false }); // rim
+  decoCone(out, cx, topY - 1.5, cz, Math.min(hx, hz) * 0.82, 1.9, side, { segments: 6, cast: false });
+  decoCone(out, cx + hx * 0.45, topY - 1.0, cz - hz * 0.3, Math.min(hx, hz) * 0.42, 1.2, shadeColor(side, 0.8), { segments: 5, cast: false });
+  decoCone(out, cx - hx * 0.4, topY - 0.9, cz + hz * 0.35, Math.min(hx, hz) * 0.35, 1.0, shadeColor(side, 0.85), { segments: 5, cast: false });
+}
+
+// ────────────────────── decor props ──────────────────────
+
+function tree(out: WorldData, x: number, z: number, h: number, kind: 'round' | 'pine' | 'blossom' = 'round') {
   const trunkR = 0.3;
-  decoCyl(out, x, height / 2, z, trunkR, height, C.treeTrunkLight, { segments: 10 });
-  out.boxes.push({ x, y: height / 2, z, hx: trunkR * 0.85, hy: height / 2, hz: trunkR * 0.85 });
-  decoSphere(out, x, height + 0.4, z, 1.1, C.treeBlossom);
-  decoSphere(out, x - 0.6, height + 0.2, z + 0.3, 0.85, C.treeBlossom);
-  decoSphere(out, x + 0.5, height + 0.3, z - 0.4, 0.9, C.treeBlossom);
-  decoSphere(out, x + 0.1, height + 1.1, z + 0.1, 0.7, '#ffe1ec');
-}
-
-function pineTree(out: WorldData, x: number, z: number, height: number) {
-  const trunkR = 0.28;
-  decoCyl(out, x, height / 2, z, trunkR, height, C.treeTrunk, { segments: 10 });
-  out.boxes.push({ x, y: height / 2, z, hx: trunkR * 0.85, hy: height / 2, hz: trunkR * 0.85 });
-  // Stacked cones
-  for (let i = 0; i < 4; i++) {
-    const ry = height + 0.2 + i * 0.7;
-    const rad = 1.4 - i * 0.25;
-    decoCone(out, x, ry, z, rad, 1.0, C.treeFolDark, { segments: 10 });
+  const trunkC = kind === 'blossom' ? C.treeTrunkLight : C.treeTrunk;
+  decoCyl(out, x, h / 2, z, trunkR, h, trunkC, { segments: 10 });
+  out.boxes.push({ x, y: h / 2, z, hx: trunkR * 0.85, hy: h / 2, hz: trunkR * 0.85 }); // solid trunk
+  if (kind === 'pine') {
+    for (let i = 0; i < 4; i++) decoCone(out, x, h + 0.2 + i * 0.7, z, 1.4 - i * 0.25, 1.0, C.treeFolDark, { segments: 10, cast: false });
+  } else {
+    const fol = kind === 'blossom' ? C.treeBlossom : C.treeFol;
+    decoSphere(out, x, h + 0.4, z, 1.25, fol, { cast: false });
+    decoSphere(out, x - 0.7, h + 0.2, z + 0.3, 0.95, kind === 'blossom' ? C.treeBlossom : C.treeFol2, { cast: false });
+    decoSphere(out, x + 0.6, h + 0.3, z - 0.4, 1.0, fol, { cast: false });
+    decoSphere(out, x + 0.1, h + 1.2, z + 0.1, 0.8, kind === 'blossom' ? '#ffe1ec' : C.treeFol2, { cast: false });
   }
 }
-
-// ────────────────────── features: small props ──────────────────────
-
-function lantern(out: WorldData, x: number, baseY: number, z: number, height = 2.2) {
-  decoCyl(out, x, baseY + height / 2, z, 0.05, height, C.metal);
-  decoSphere(out, x, baseY + height + 0.15, z, 0.2, C.lanternGlow, { emissive: C.lanternGlow, emissiveIntensity: 1.6 });
-  decoBox(out, x, baseY + height + 0.35, z, 0.08, 0.08, 0.08, C.lanternBody);
+function lantern(out: WorldData, x: number, baseY: number, z: number, h = 2.2) {
+  decoCyl(out, x, baseY + h / 2, z, 0.05, h, C.metal, { cast: false });
+  decoSphere(out, x, baseY + h + 0.15, z, 0.18, C.lanternGlow, { emissive: C.lanternGlow, emissiveIntensity: 1.7, cast: false });
 }
-
-function mushroom(out: WorldData, x: number, z: number, scale = 1, color: 'red' | 'purple' | 'blue' = 'red') {
+function mushroom(out: WorldData, x: number, z: number, baseY: number, scale = 1, color: 'red' | 'purple' | 'blue' = 'red') {
   const stemH = 0.4 * scale;
-  decoCyl(out, x, stemH / 2, z, 0.12 * scale, stemH, C.mushStem);
+  decoCyl(out, x, baseY + stemH / 2, z, 0.12 * scale, stemH, C.mushStem, { cast: false });
   const cap = color === 'purple' ? C.mushCapPurple : color === 'blue' ? C.mushCapBlue : C.mushCap;
-  decoSphere(out, x, stemH + 0.18 * scale, z, 0.32 * scale, cap);
-  decoSphere(out, x - 0.1 * scale, stemH + 0.3 * scale, z + 0.05 * scale, 0.05 * scale, '#fef9c3');
-  decoSphere(out, x + 0.1 * scale, stemH + 0.25 * scale, z - 0.07 * scale, 0.05 * scale, '#fef9c3');
+  decoSphere(out, x, baseY + stemH + 0.16 * scale, z, 0.3 * scale, cap, { cast: false });
 }
-
-function flowerPatch(out: WorldData, x: number, z: number, count: number, rng: () => number) {
+function flowerPatch(out: WorldData, x: number, z: number, baseY: number, count: number, rng: () => number) {
   for (let i = 0; i < count; i++) {
-    const fx = x + (rng() * 2 - 1) * 0.6;
-    const fz = z + (rng() * 2 - 1) * 0.6;
-    const h = 0.15 + rng() * 0.12;
-    decoCyl(out, fx, h / 2, fz, 0.02, h, '#4ade80');
-    const color = ['#f43f5e', '#facc15', '#a855f7', '#38bdf8', '#fb923c'][Math.floor(rng() * 5)];
-    decoSphere(out, fx, h + 0.07, fz, 0.08, color);
+    const fx = x + (rng() * 2 - 1) * 0.7, fz = z + (rng() * 2 - 1) * 0.7, h = 0.15 + rng() * 0.12;
+    decoCyl(out, fx, baseY + h / 2, fz, 0.02, h, '#4ade80', { cast: false });
+    decoSphere(out, fx, baseY + h + 0.07, fz, 0.08, ['#f43f5e', '#facc15', '#a855f7', '#38bdf8', '#fb923c'][Math.floor(rng() * 5)], { cast: false });
   }
 }
-
-function barrel(out: WorldData, x: number, z: number, scale = 1) {
-  const r = 0.32 * scale;
-  const h = 0.7 * scale;
-  decoCyl(out, x, h / 2, z, r, h, C.wood, { segments: 14 });
-  out.boxes.push({ x, y: h / 2, z, hx: r * 0.85, hy: h / 2, hz: r * 0.85 });
-  // bands
-  decoCyl(out, x, h * 0.2, z, r * 1.03, 0.05, '#1f1308', { segments: 14 });
-  decoCyl(out, x, h * 0.8, z, r * 1.03, 0.05, '#1f1308', { segments: 14 });
+function barrel(out: WorldData, x: number, z: number, baseY: number, scale = 1) {
+  const r = 0.32 * scale, h = 0.7 * scale;
+  decoCyl(out, x, baseY + h / 2, z, r, h, C.wood, { segments: 12 });
+  out.boxes.push({ x, y: baseY + h / 2, z, hx: r * 0.85, hy: h / 2, hz: r * 0.85 });
+  decoCyl(out, x, baseY + h * 0.8, z, r * 1.04, 0.05, '#1f1308', { segments: 12, cast: false });
 }
-
-function haystack(out: WorldData, x: number, z: number, scale = 1) {
-  const r = 0.55 * scale;
-  const h = 0.55 * scale;
-  decoCyl(out, x, h / 2, z, r, h, C.haystack, { segments: 14 });
-  decoCyl(out, x, h / 2, z, r * 1.01, 0.06, '#caa845', { segments: 14 });
-  out.boxes.push({ x, y: h / 2, z, hx: r * 0.85, hy: h / 2, hz: r * 0.85 });
-  // strands on top
-  decoSphere(out, x, h + 0.05, z, r * 0.7, C.haystack);
+function haystack(out: WorldData, x: number, z: number, baseY: number, scale = 1) {
+  const r = 0.55 * scale, h = 0.55 * scale;
+  decoCyl(out, x, baseY + h / 2, z, r, h, C.haystack, { segments: 12 });
+  out.boxes.push({ x, y: baseY + h / 2, z, hx: r * 0.85, hy: h / 2, hz: r * 0.85 });
+  decoSphere(out, x, baseY + h + 0.04, z, r * 0.7, C.haystack, { cast: false });
 }
-
-function bench(out: WorldData, x: number, z: number, rotY = 0) {
-  // seat
-  const seatY = 0.4;
-  solidBox(out, x, seatY, z, 0.7, 0.05, 0.25, C.wood, { rotY, rough: 0.9 });
-  // legs (visual)
-  const ox = Math.cos(rotY) * 0.6;
-  const oz = -Math.sin(rotY) * 0.6;
-  const ox2 = Math.sin(rotY) * 0.2;
-  const oz2 = Math.cos(rotY) * 0.2;
-  for (const sx of [1, -1] as const) {
-    decoBox(out, x + sx * ox + ox2, 0.2, z + sx * oz + oz2, 0.05, 0.2, 0.05, C.woodDark, { rotY });
-    decoBox(out, x + sx * ox - ox2, 0.2, z + sx * oz - oz2, 0.05, 0.2, 0.05, C.woodDark, { rotY });
-  }
-  // backrest (visual)
-  const bx = Math.sin(rotY) * 0.25;
-  const bz = Math.cos(rotY) * 0.25;
-  decoBox(out, x - bx, seatY + 0.35, z - bz, 0.7, 0.35, 0.04, C.woodLight, { rotY });
-}
-
-function sign(out: WorldData, x: number, z: number, rotY = 0, color = C.wood) {
-  // post
-  decoCyl(out, x, 0.5, z, 0.06, 1, C.woodDark);
-  // board
-  const bx = Math.cos(rotY) * 0.3;
-  const bz = -Math.sin(rotY) * 0.3;
-  decoBox(out, x + bx, 0.85, z + bz, 0.4, 0.25, 0.04, color, { rotY });
-}
-
-function fenceSegment(out: WorldData, x1: number, z1: number, x2: number, z2: number) {
-  const dx = x2 - x1, dz = z2 - z1;
-  const len = Math.hypot(dx, dz);
-  if (len < 0.05) return;
-  const rotY = Math.atan2(dx, dz);
-  const cx = (x1 + x2) / 2, cz = (z1 + z2) / 2;
-  // two horizontal rails
-  decoBox(out, cx, 0.7, cz, 0.04, 0.05, len / 2, C.fenceWood, { rotY });
-  decoBox(out, cx, 0.3, cz, 0.04, 0.05, len / 2, C.fenceWood, { rotY });
-  // a few vertical posts
-  const numPosts = Math.max(2, Math.ceil(len / 1.2));
-  for (let i = 0; i <= numPosts; i++) {
-    const t = i / numPosts;
-    decoCyl(out, x1 + dx * t, 0.5, z1 + dz * t, 0.05, 1.0, C.fenceWood);
+function fenceRun(out: WorldData, pts: [number, number][]) {
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [x1, z1] = pts[i], [x2, z2] = pts[i + 1];
+    const dx = x2 - x1, dz = z2 - z1, len = Math.hypot(dx, dz);
+    if (len < 0.05) continue;
+    const rotY = Math.atan2(dx, dz), cx = (x1 + x2) / 2, cz = (z1 + z2) / 2;
+    decoBox(out, cx, 0.7, cz, 0.04, 0.05, len / 2, C.fenceWood, { rotY, cast: false });
+    decoBox(out, cx, 0.35, cz, 0.04, 0.05, len / 2, C.fenceWood, { rotY, cast: false });
+    const n = Math.max(2, Math.ceil(len / 1.4));
+    for (let k = 0; k <= n; k++) decoCyl(out, x1 + dx * (k / n), 0.5, z1 + dz * (k / n), 0.05, 1.0, C.fenceWood, { cast: false });
   }
 }
+function well(out: WorldData, cx: number, cz: number) {
+  for (let i = 0; i < 14; i++) { const a = (i / 14) * Math.PI * 2; decoBox(out, cx + Math.cos(a) * 0.9, 0.4, cz + Math.sin(a) * 0.9, 0.17, 0.4, 0.17, C.cobble, { rotY: a, cast: false }); }
+  out.boxes.push({ x: cx, y: 0.4, z: cz, hx: 0.78, hy: 0.4, hz: 0.78 });
+  decoCyl(out, cx, 0.62, cz, 0.62, 0.04, C.waterDeep, { segments: 16, emissive: '#1e3a8a', emissiveIntensity: 0.2, cast: false });
+  for (const [sx, sz] of [[-0.7, -0.7], [0.7, -0.7], [-0.7, 0.7], [0.7, 0.7]] as const) decoCyl(out, cx + sx, 1.5, cz + sz, 0.07, 1.9, C.wood, { cast: false });
+  decoCone(out, cx, 2.7, cz, 1.25, 0.5, C.roofRed, { rotY: Math.PI / 4, segments: 4, cast: false });
+}
+function campfire(out: WorldData, x: number, z: number, baseY: number) {
+  for (let i = 0; i < 5; i++) { const a = (i / 5) * Math.PI * 2; decoCyl(out, x + Math.cos(a) * 0.3, baseY + 0.12, z + Math.sin(a) * 0.3, 0.06, 0.5, C.woodDark, { rotY: a + 1, cast: false }); }
+  decoCone(out, x, baseY + 0.4, z, 0.3, 0.7, C.campfire, { segments: 8, emissive: C.campfire, emissiveIntensity: 1.8, cast: false });
+  decoSphere(out, x, baseY + 0.2, z, 0.18, '#fde047', { emissive: '#fbbf24', emissiveIntensity: 2.0, cast: false });
+}
+function tent(out: WorldData, x: number, z: number, baseY: number, rotY = 0) {
+  decoCone(out, x, baseY + 0.9, z, 1.1, 1.9, C.tent, { segments: 4, rotY: rotY + Math.PI / 4, cast: false });
+  decoBox(out, x, baseY + 0.5, z + 0.01, 0.25, 0.5, 0.02, '#1f1308', { rotY, cast: false });
+}
+function pathTile(out: WorldData, x: number, z: number, shade = 1) { decoBox(out, x, 0.02, z, 0.5, 0.02, 0.5, shadeColor(C.cobble, shade), { cast: false }); }
 
-function well(out: WorldData, cx: number, cz: number, baseY = 0) {
-  // stone rim
-  const rimR = 0.9;
-  for (let i = 0; i < 16; i++) {
-    const a = (i / 16) * Math.PI * 2;
-    const sx = cx + Math.cos(a) * rimR;
-    const sz = cz + Math.sin(a) * rimR;
-    decoBox(out, sx, baseY + 0.4, sz, 0.18, 0.4, 0.18, C.cobble, { rotY: a });
-  }
-  out.boxes.push({ x: cx, y: baseY + 0.4, z: cz, hx: rimR * 0.75, hy: 0.4, hz: rimR * 0.75 });
-  // dark water disc
-  decoCyl(out, cx, baseY + 0.6, cz, rimR * 0.7, 0.04, C.water, { segments: 18, emissive: '#1e3a8a', emissiveIntensity: 0.15 });
-  // roof posts
-  for (const [sx, sz] of [[-rimR * 0.8, -rimR * 0.8], [rimR * 0.8, -rimR * 0.8], [-rimR * 0.8, rimR * 0.8], [rimR * 0.8, rimR * 0.8]] as const) {
-    decoCyl(out, cx + sx, baseY + 1.6, cz + sz, 0.07, 2.0, C.wood);
-  }
-  // Half-grade pyramid roof, flush with the post tops at y=baseY+2.6
-  decoCone(out, cx, baseY + 2.74, cz, rimR * 1.4, 0.28, C.roofRed, { rotY: Math.PI / 4, segments: 4 });
-  // crank handle (decorative)
-  decoCyl(out, cx, baseY + 2.4, cz, 0.05, 1.8, C.wood, { rotY: Math.PI / 2 });
-  decoSphere(out, cx + 0.9, baseY + 2.4, cz, 0.1, C.wood);
+function checkpointBanner(out: WorldData, x: number, y: number, z: number) {
+  decoCyl(out, x, y + 1.1, z, 0.06, 2.2, C.woodDark, { cast: false });
+  decoBox(out, x + 0.45, y + 1.7, z, 0.42, 0.34, 0.03, C.cpCloth, { emissive: C.cpCloth, emissiveIntensity: 0.3, cast: false });
+  decoSphere(out, x, y + 2.3, z, 0.12, C.cpCloth, { emissive: C.cpCloth, emissiveIntensity: 1.3, cast: false });
 }
 
-function pathTile(out: WorldData, x: number, z: number, shade = 1.0) {
-  decoBox(out, x, 0.02, z, 0.5, 0.02, 0.5, shadeColor(C.cobble, shade), { cast: false });
-}
-
-// ────────────────────── features: bridges, platforms ──────────────────────
-
-function bridge(out: WorldData, x1: number, z1: number, x2: number, z2: number, y: number) {
-  const cx = (x1 + x2) / 2;
-  const cz = (z1 + z2) / 2;
-  const dx = x2 - x1;
-  const dz = z2 - z1;
-  const len = Math.hypot(dx, dz);
-  if (len < 0.01) return;
-  const rotY = Math.atan2(dx, dz);
-  const halfW = 0.7;
-  const halfTH = 0.1;
-
-  // Visual: single rotated plank
-  decoBox(out, cx, y, cz, halfW, halfTH, len / 2, C.plank, { rotY, rough: 0.85 });
-
-  // Physics: chain of short axis-aligned AABB segments (AABB can't rotate)
-  const dirX = dx / len;
-  const dirZ = dz / len;
-  const segMax = 0.6;
-  const numSegs = Math.max(1, Math.ceil(len / segMax));
-  const segLen = len / numSegs;
-  for (let i = 0; i < numSegs; i++) {
-    const t = (i + 0.5) / numSegs;
-    const sx = x1 + dx * t;
-    const sz = z1 + dz * t;
-    const hxSeg = Math.abs(dirX) * (segLen / 2) + Math.abs(dirZ) * halfW;
-    const hzSeg = Math.abs(dirZ) * (segLen / 2) + Math.abs(dirX) * halfW;
-    out.boxes.push({ x: sx, y, z: sz, hx: hxSeg, hy: halfTH, hz: hzSeg });
-  }
-
-  // Rope rails (visual)
-  for (const sign of [1, -1] as const) {
-    const ox = -Math.cos(rotY) * 0.75 * sign;
-    const oz = Math.sin(rotY) * 0.75 * sign;
-    decoBox(out, cx + ox, y + 0.5, cz + oz, 0.03, 0.5, len / 2, C.rope, { rotY });
-  }
-  for (const [ex, ez] of [[x1, z1], [x2, z2]] as const) {
-    decoCyl(out, ex, y + 0.4, ez, 0.08, 0.8, C.wood);
-  }
-}
-
-function platform(out: WorldData, x: number, y: number, z: number, hx: number, hz: number, color = C.grassDeep, top = C.grass) {
-  const hy = 0.3;
-  solidBox(out, x, y - hy, z, hx, hy, hz, color, { rough: 0.9 });
-  decoBox(out, x, y + 0.02, z, hx * 0.98, 0.04, hz * 0.98, top, { rough: 0.9, cast: false });
-}
-
-function cloudPlatform(out: WorldData, x: number, y: number, z: number, r: number) {
-  solidBox(out, x, y - 0.15, z, r, 0.15, r * 0.7, C.cloud, { rough: 1 });
-  decoSphere(out, x - r * 0.4, y, z, r * 0.55, C.cloud);
-  decoSphere(out, x + r * 0.45, y, z + r * 0.1, r * 0.6, C.cloud);
-  decoSphere(out, x + r * 0.05, y, z - r * 0.4, r * 0.5, C.cloud);
-  decoSphere(out, x - r * 0.2, y + 0.05, z + r * 0.3, r * 0.4, C.cloudEdge);
-}
-
-function crystal(out: WorldData, x: number, baseY: number, z: number, height: number) {
-  const choices = [C.crystalA, C.crystalB, C.crystalC, C.crystalD];
-  const c = choices[Math.floor(Math.abs((x * 7 + z * 13))) % choices.length];
-  decoCone(out, x, baseY + height / 2, z, 0.9, height, c, { segments: 6 });
-  decoCone(out, x, baseY + height / 2 + 0.4, z, 0.55, height * 0.4, C.crystalB, { segments: 6 });
-  // Larger landable cap (1.6m square) so a slightly off-target jump still lands
-  solidBox(out, x, baseY + height + 0.06, z, 0.8, 0.06, 0.8, C.crystalC, { rough: 0.3 });
-}
-
-// ────────────────────── features: climbable structures ──────────────────────
-
-/** A unified climbing spoke. All 8 spokes share this exact vertical/horizontal
- *  profile — only the rotation, colors, and entry-pad decoration change. This
- *  gives the player a consistent, refined approach from any direction.
- *
- *  Layout (along the spoke's radial direction, looking inward):
- *    entry pad     y=0.0   radius rOuter  (2.0×2.0 cobble pad, flag)
- *    step 1        y=1.6   radius rOuter - 2.8
- *    step 2        y=3.2   radius rOuter - 5.6
- *    step 3        y=4.8   radius rOuter - 8.4
- *    step 4        y=6.4   radius rOuter - 11.2
- *    step 5        y=8.0   radius rOuter - 14.0
- *    landing pad   y=9.4   radius rInner  (1.2×1.2 themed pad)
- *    → short flat bridge to central tower edge at radius rTower
- *
- *  Gap math per step: 1.6m up + ~2.8m horizontal. Single-jump apex 3m can
- *  reach ~5.5m horizontal at 1.6m up, so every gap is comfortably in the
- *  EASY band. Spoke faces straight inward — no zigzag.
- */
-function climbSpoke(out: WorldData, opts: {
-  angle: number;
-  rOuter: number;
-  rInner: number;
-  rTower: number;
-  mergeY: number;
-  baseColor: string;
-  topColor: string;
-  flagColor: string;
-  /** Small decorative landmark at the entry pad — purely visual */
-  marker?: 'lantern' | 'pine' | 'blossom' | 'mushroom';
-}) {
-  const cosA = Math.cos(opts.angle);
-  const sinA = Math.sin(opts.angle);
-  const numSteps = 5;
-  const stepRise = 1.6;                       // y of step i = i * stepRise
-  const radialSpan = opts.rOuter - opts.rInner;
-  const radialStep = radialSpan / (numSteps + 1); // ≈ 2.83 with 22→5 / 6
-
-  // Entry pad — a clearly-marked landing spot at ground level
-  const ex = cosA * opts.rOuter;
-  const ez = sinA * opts.rOuter;
-  platform(out, ex, 0.4, ez, 1.0, 1.0, C.cobbleDark, C.cobble);
-  decoBox(out, ex, 0.45, ez, 1.05, 0.05, 1.05, C.cobbleEdge, { cast: false });
-  // Flag pole at the back of the entry pad so each direction has a marker
-  const px = cosA * (opts.rOuter + 0.7);
-  const pz = sinA * (opts.rOuter + 0.7);
-  decoCyl(out, px, 1.6, pz, 0.05, 2.8, C.wood);
-  decoBox(out, px - cosA * 0.4, 2.5, pz - sinA * 0.4, 0.4, 0.3, 0.04, opts.flagColor, { rotY: opts.angle });
-  out.flags.push({ x: ex, y: 0.5, z: ez, rotY: opts.angle, color: opts.flagColor });
-
-  // Optional cosmetic landmark next to the entry pad
-  if (opts.marker === 'lantern') {
-    lantern(out, ex + sinA * 1.6, 0, ez - cosA * 1.6, 2.6);
-    lantern(out, ex - sinA * 1.6, 0, ez + cosA * 1.6, 2.6);
-  } else if (opts.marker === 'pine') {
-    pineTree(out, ex + sinA * 2.4, ez - cosA * 2.4, 3.5);
-  } else if (opts.marker === 'blossom') {
-    blossomTree(out, ex + sinA * 2.4, ez - cosA * 2.4, 3.0);
-  } else if (opts.marker === 'mushroom') {
-    mushroom(out, ex + sinA * 1.4, ez - cosA * 1.4, 1.2, 'red');
-    mushroom(out, ex - sinA * 1.4, ez + cosA * 1.4, 0.9, 'purple');
-  }
-
-  // 5 stepping platforms ascending toward the tower
-  for (let i = 1; i <= numSteps; i++) {
-    const r = opts.rOuter - i * radialStep;
-    const y = i * stepRise;
-    const x = cosA * r;
-    const z = sinA * r;
-    // Slightly larger pads for the final two steps so the approach to the
-    // landing pad reads cleanly
-    const hxz = i >= 4 ? 0.9 : 0.75;
-    platform(out, x, y, z, hxz, hxz, opts.baseColor, opts.topColor);
-    // Soft railing post on the outboard edge (purely visual hint)
-    if (i === 2 || i === 4) {
-      const rx = cosA * (r + 0.6);
-      const rz = sinA * (r + 0.6);
-      decoCyl(out, rx, y + 0.45, rz, 0.04, 0.9, C.wood);
-      decoSphere(out, rx, y + 0.95, rz, 0.1, opts.flagColor);
-    }
-  }
-
-  // Landing pad at the merge height — ring of 8 identical pads at radius rInner
-  const lx = cosA * opts.rInner;
-  const lz = sinA * opts.rInner;
-  platform(out, lx, opts.mergeY, lz, 1.2, 1.2, opts.baseColor, opts.topColor);
-  decoBox(out, lx, opts.mergeY + 0.06, lz, 1.25, 0.04, 1.25, C.cobbleEdge, { cast: false });
-
-  // Short, flat bridge from landing pad to the central tower edge
-  bridge(out, lx, lz, cosA * opts.rTower, sinA * opts.rTower, opts.mergeY);
-}
-
-/** Central spiral staircase tower. Climb route #1. */
-/** Central spiral staircase tower. Hand-tuned so the top step's TOP y exactly
- *  equals the top platform's TOP y, and the spiral radius is OUTSIDE the
- *  platform's horizontal footprint — so the walk-on transition has neither
- *  vertical head-bump nor horizontal push-out.
- *
- *  Climb route #1 (the spine).
- *  Gap math (per step): 0.42m vertical, 2.5m angular horizontal — trivial.
- */
-function spiralTower(out: WorldData, cx: number, cz: number, baseY: number, topY: number) {
-  const tR = 1.8;                       // tower body radius
-  const platformHx = 2.8;               // top platform half-extent
-  const stepRadius = platformHx + 0.9;  // 3.7 — well outside platformHx + rxz(0.4) = 3.2
-  const steps = 22;
-  const totalH = topY - baseY;          // 9.4 if baseY=0, topY=9.4
-  const stepRise = totalH / steps;      // ≈ 0.427
-
-  // Tower body cylinder (visual) + smaller AABB collider so steps remain reachable
-  decoCyl(out, cx, baseY + totalH / 2, cz, tR, totalH, C.cobble, { segments: 24 });
-  solidBox(out, cx, baseY + totalH / 2, cz, tR * 0.7, totalH / 2, tR * 0.7, C.cobble);
-
-  // Spiral steps. Each step's top y = (i+1)*stepRise. Top step (i=steps-1) tops out at exactly totalH.
-  const turns = 2.5; // 22 steps over 2.5 turns ≈ 8.8 steps per turn ≈ 40.9°/step
-  for (let i = 0; i < steps; i++) {
-    const angle = (i / steps) * turns * Math.PI * 2;
-    const sx = cx + Math.cos(angle) * stepRadius;
-    const sz = cz + Math.sin(angle) * stepRadius;
-    const stepTopY = baseY + (i + 1) * stepRise;
-    const halfY = stepRise / 2;
-    const sy = stepTopY - halfY;
-    const color = i % 2 === 0 ? C.wood : C.woodLight;
-    solidBox(out, sx, sy, sz, 0.7, halfY, 0.7, color, { rotY: -angle, rough: 0.85 });
-    // outer-edge rail post
-    decoCyl(out, sx + Math.cos(angle) * 0.65, stepTopY + 0.35, sz + Math.sin(angle) * 0.65, 0.04, 0.7, C.wood);
-  }
-
-  // Top platform — thin so its underside doesn't create head-bump issues for
-  // anyone on the second-to-top step. Top y = topY (matches spiral's last step).
-  const platformHy = 0.06;
-  solidBox(out, cx, topY - platformHy, cz, platformHx, platformHy, platformHx, C.cobble);
-  // decorative trim band
-  decoBox(out, cx, topY + 0.05, cz, platformHx + 0.05, 0.06, platformHx + 0.05, C.cobbleEdge, { cast: false });
-  // Crenellations
-  for (let i = 0; i < 12; i++) {
-    const a = (i / 12) * Math.PI * 2;
-    decoBox(out, cx + Math.cos(a) * platformHx * 0.93, topY + 0.25, cz + Math.sin(a) * platformHx * 0.93, 0.18, 0.18, 0.18, C.cobbleEdge, { rotY: -a });
-  }
-
-  // No central spire — the top is open for all bridges to land cleanly.
-  // Just a tall flag pole in the middle so the tower is visually distinct.
-  decoCyl(out, cx, topY + 1.5, cz, 0.06, 3.0, C.wood);
-  // Small lantern at top of the pole
-  decoSphere(out, cx, topY + 3.1, cz, 0.18, C.lanternGlow, { emissive: C.lanternGlow, emissiveIntensity: 1.6 });
-}
-
-// ────────────────────── helpers ──────────────────────
-
-function shadeColor(hex: string, factor: number): string {
-  const m = /^#([0-9a-f]{6})$/i.exec(hex);
-  if (!m) return hex;
+function shadeColor(hex: string, f: number): string {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex); if (!m) return hex;
   const n = parseInt(m[1], 16);
-  const r = Math.min(255, Math.max(0, Math.floor(((n >> 16) & 0xff) * factor)));
-  const g = Math.min(255, Math.max(0, Math.floor(((n >> 8) & 0xff) * factor)));
-  const b = Math.min(255, Math.max(0, Math.floor((n & 0xff) * factor)));
+  const r = Math.min(255, Math.floor(((n >> 16) & 255) * f)), g = Math.min(255, Math.floor(((n >> 8) & 255) * f)), b = Math.min(255, Math.floor((n & 255) * f));
   return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
 }
 
-// ────────────────────── main generator ──────────────────────
+// ════════════════════════════════════════════════════════════════════════
+//  THE WORLD
+// ════════════════════════════════════════════════════════════════════════
 
 export function generateWorld(seed = 1337): WorldData {
   const rng = makeRng(seed);
   const out: WorldData = {
-    boxes: [],
-    ladders: [],
-    movers: [],
-    meshes: [],
-    windmills: [],
-    flags: [],
-    smoke: [],
-    goal: { x: 0, y: 0, z: 0 },
-    maxHeight: 0,
+    boxes: [], ladders: [], movers: [], breakaways: [], meshes: [], windmills: [], flags: [], smoke: [],
+    waterfalls: [], waterwheels: [], checkpoints: [], zones: [], edges: [],
+    goal: { x: 0, y: 0, z: 0 }, summitY: 0, maxHeight: 0,
   };
 
-  // ─────────────────────────────────────────────────────────────
-  //                       GROUND + PLAZA
-  // ─────────────────────────────────────────────────────────────
-  // 120m × 120m grass plate.
-  solidBox(out, 0, -0.5, 0, 60, 0.5, 60, C.grass, { rough: 1, receive: true });
-  // Light grass-tone variation patches (decorative)
-  for (let i = 0; i < 40; i++) {
-    const ax = (rng() * 2 - 1) * 55;
-    const az = (rng() * 2 - 1) * 55;
-    decoBox(out, ax, 0.015, az, 0.6 + rng() * 0.8, 0.015, 0.6 + rng() * 0.8, rng() > 0.5 ? C.grassDark : C.grassDeep, { cast: false });
-  }
-  // Cobblestone plaza (8×8 tiles, center reserved for the well)
-  for (let i = 0; i < 8; i++) {
-    for (let j = 0; j < 8; j++) {
-      const a = (i - 3.5) * 1.0;
-      const b = (j - 3.5) * 1.0;
-      if (Math.abs(a) < 1.5 && Math.abs(b) < 1.5) continue;
-      pathTile(out, a, b, 0.85 + rng() * 0.25);
-    }
-  }
-  well(out, 0, 0, 0);
-  // Path pavers radiating to each climbing structure and cottage
-  const radials: [number, number][] = [
-    [-14, -14], [14, -14], [-14, 14], [14, 14],   // 4 cottage diagonals
-    [-16, 0], [16, 0], [0, -16], [0, 16],         // 4 cardinal climbing structures
-    [-28, 28], [28, -28],                          // alt-route landmarks
+  out.zones = [
+    { name: 'Garden Rise', minY: -5, tint: '#9be37c' },
+    { name: 'Windmill Heights', minY: 11, tint: '#e3c970' },
+    { name: 'The Waterworks', minY: 23, tint: '#7fc5a9' },
+    { name: 'Night Market', minY: 34, tint: '#e0883a' },
+    { name: 'Ice Reach', minY: 45, tint: '#cfeeff' },
+    { name: 'The Summit', minY: 55, tint: '#c4b5fd' },
   ];
-  for (const [tx, tz] of radials) {
-    const steps = 12;
-    for (let i = 1; i <= steps; i++) {
-      const t = i / steps;
-      pathTile(out, tx * t * 0.8, tz * t * 0.8, 0.95);
-    }
-  }
 
-  // ─────────────────────────────────────────────────────────────
-  //                         COTTAGES (decorative)
-  // ─────────────────────────────────────────────────────────────
-  // 4 cottages at the diagonals — flavor only, the climbing routes
-  // are dedicated structures at the cardinal points.
-  type Cottage = {
-    cx: number; cz: number; wall: string; roof: string;
-    door: 'north' | 'south' | 'east' | 'west';
-    garden?: boolean;
+  // ── HOME ISLAND — the floating village you launch from ──
+  islet(out, 0, 0, 0, 15, 15, C.grass, C.dirtDark);
+  // slender DECORATIVE central peak the climb spirals around (NO collider, so the
+  // chase camera never jams on it — it's just a landmark in the open middle).
+  decoCyl(out, 0, 7, 0, 2.8, 14, '#8f8d92', { segments: 8 });
+  decoCyl(out, 0, 22, 0, 2.2, 16, '#9b9aa1', { segments: 8 });
+  decoCyl(out, 0, 37, 0, 1.7, 16, '#b4bac2', { segments: 8 });
+  decoCone(out, 0, 51, 0, 1.5, 10, '#d6dee6', { segments: 8 });
+  decoCone(out, 0, 58.5, 0, 1.0, 5, '#eef4f8', { segments: 8 });
+  // village on the home island
+  const cotColors: Array<[string, string]> = [[C.wallMint, C.roofTeal], [C.wallSky, C.roofCoral], [C.wallPink, C.roofLav], [C.wallPeach, C.roofPlum], [C.wallCream, C.roofRed]];
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2 + 1.2, cr = 10.5, cx = Math.cos(a) * cr, cz = Math.sin(a) * cr;
+    const door: 'north' | 'south' | 'east' | 'west' = Math.abs(cx) > Math.abs(cz) ? (cx > 0 ? 'west' : 'east') : (cz > 0 ? 'north' : 'south');
+    cottage(out, { cx, cz, baseY: 0, wallW: 3.2, wallD: 3.0, wallH: 2.3, wallColor: cotColors[i][0], roofColor: cotColors[i][1], doorFace: door });
+  }
+  well(out, 5.5, 5.5);
+  for (let i = 0; i < 4; i++) { const a = (i / 4) * Math.PI * 2 + 0.3; tree(out, Math.cos(a) * 12.5, Math.sin(a) * 12.5, 4 + (i % 2), (['round', 'pine', 'blossom'] as const)[i % 3]); }
+  for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; lantern(out, Math.cos(a) * 7.5, 0, Math.sin(a) * 7.5, 2.0); }
+  for (let i = 0; i < 16; i++) { const a = rng() * Math.PI * 2, rr = 4 + rng() * 9; flowerPatch(out, Math.cos(a) * rr, Math.sin(a) * rr, 0, 5, rng); mushroom(out, -Math.cos(a) * rr, -Math.sin(a) * rr, 0, 0.6 + rng() * 0.5, rng() > 0.6 ? 'purple' : 'red'); }
+
+  // ── district palettes + skins ──
+  const PAL = {
+    garden: { top: C.grass, side: C.dirtDark },
+    wheat: { top: '#e3c970', side: '#a8893f' },
+    water: { top: '#7fc5a9', side: '#566d70' },
+    market: { top: '#c69a5e', side: '#6b5a45' },
+    ice: { top: '#cfeeff', side: '#8fb0c0' },
   };
-  const cottages: Cottage[] = [
-    { cx: -14, cz:  14, wall: C.wallCream, roof: C.roofRed,   door: 'east',  garden: true  },
-    { cx:  14, cz:  14, wall: C.wallMint,  roof: C.roofTeal,  door: 'west',  garden: true  },
-    { cx: -14, cz: -14, wall: C.wallPink,  roof: C.roofLav,   door: 'east'                 },
-    { cx:  14, cz: -14, wall: C.wallSky,   roof: C.roofCoral, door: 'west',  garden: true  },
-  ];
-  for (const c of cottages) {
-    cottage(out, {
-      cx: c.cx, cz: c.cz, baseY: 0,
-      wallW: 4.0, wallD: 4.0,           // square footprint so the roof cap doesn't overhang
-      wallH: 2.5,                       // single jump from ground (apex 3m) clears this
-      roofH: 0.5,                       // half-grade decorative cap — easier silhouette to land on
-      wallColor: c.wall, roofColor: c.roof,
-      doorFace: c.door, hasGarden: c.garden,
-    });
+  const isle = (p: { top: string; side: string }) => (cx: number, cz: number, topY: number, hx: number, hz: number) => islet(out, cx, cz, topY, hx, hz, p.top, p.side);
+  const ice = (cx: number, cz: number, topY: number, hx: number, hz: number) => iceBreakaway(out, cx, cz, topY, hx, hz);
+  const crys = (cap: string) => (cx: number, cz: number, topY: number, hx: number, hz: number) => crystalSpire(out, cx, cz, topY, Math.min(hx, hz), 2.4, cap);
+  const R0 = 9.5; // spiral orbit radius (islands float this far from the open centre)
+
+  const r = new Route(out, { x: 0, y: 0.6, z: R0, hx: 1.6, hz: 1.6, label: 'spine' });
+  r.angle = Math.PI / 2;
+  islet(out, 0, R0, 0.6, 1.6, 1.6, C.grass, C.dirtDark); // trailhead islet at the home edge
+  const dress = (flag: string, lamp = false) => {
+    const ox = Math.cos(r.angle), oz = Math.sin(r.angle);
+    out.flags.push({ x: r.x + ox * (r.hx + 0.1), y: r.y + 0.5, z: r.z + oz * (r.hz + 0.1), rotY: r.angle, color: flag });
+    if (lamp) lantern(out, r.x - ox * (r.hx - 0.3), r.y, r.z - oz * (r.hz - 0.3), 1.5);
+  };
+  // ════ DISTRICT 1 — GARDEN RISE (y0.6 → ~11, easy → medium) ════
+  r.arc({ dDeg: 30, R: R0, rise: 1.6, hx: 1.5, hz: 1.5, band: 'easy', skin: isle(PAL.garden) });
+  r.arc({ dDeg: 34, R: R0, rise: 1.9, hx: 1.4, hz: 1.4, band: 'easy', skin: isle(PAL.garden) });
+  r.arc({ dDeg: 38, R: R0, rise: 2.0, hx: 1.3, hz: 1.3, band: 'medium', skin: isle(PAL.garden) });
+  tree(out, r.x, r.z - 0.1, 1.6, 'blossom');
+  r.arc({ dDeg: 38, R: R0, rise: 2.0, hx: 1.3, hz: 1.3, band: 'medium', skin: isle(PAL.garden) });
+  r.arc({ dDeg: 34, R: R0, rise: 1.6, hx: 1.9, hz: 1.7, band: 'medium', skin: isle(PAL.garden) });
+  r.checkpoint('Garden Rise', 1); dress(C.flag4, true);
+
+  // ════ DISTRICT 2 — WINDMILL HEIGHTS (y11 → ~23; RIDE A TURNING WHEEL) ════
+  r.arc({ dDeg: 36, R: R0, rise: 2.0, hx: 1.4, hz: 1.4, band: 'medium', skin: isle(PAL.wheat) });
+  out.windmills.push({ x: r.x, y: r.y + 1.9, z: r.z, rotY: r.angle, scale: 0.6 });
+  r.arc({ dDeg: 34, R: R0, rise: 1.9, hx: 1.5, hz: 1.5, band: 'medium', skin: isle(PAL.wheat) });
+  // THE GONDOLA WHEEL — board the bottom gondola, ride it up, hop off at the top.
+  {
+    const ahead = r.angle + 0.42;
+    const px = Math.cos(ahead) * R0, pz = Math.sin(ahead) * R0, py = r.y + 4.2;
+    const w = gondolaWheel(out, { x: px, y: py, z: pz }, 3.8, 4, 9, C.plank);
+    r.link(w.bottom.x, w.bottom.y, w.bottom.z, 1.25, 1.25, 'medium', 'jump');
+    out.edges.push({ ax: w.bottom.x, ay: w.bottom.y, az: w.bottom.z, bx: w.top.x, by: w.top.y, bz: w.top.z, band: 'easy', kind: 'mover' });
+    r.x = w.top.x; r.y = w.top.y; r.z = w.top.z; r.hx = 1.25; r.hz = 1.25; r.angle = ahead;
   }
-  // Perimeter fence with gaps aligned to the 8 spoke directions (π/8 offset
-  // so spokes thread between the 4 diagonal cottages — see climbSpoke block)
-  const fenceR = 36;
-  const SPOKE_OFFSET = Math.PI / 8;
-  const gaps = [0, 1, 2, 3, 4, 5, 6, 7].map(i => SPOKE_OFFSET + i * Math.PI / 4);
-  for (let i = 0; i < 56; i++) {
-    const a1 = (i / 56) * Math.PI * 2;
-    const a2 = ((i + 1) / 56) * Math.PI * 2;
-    let nearGap = false;
-    for (const g of gaps) {
-      let d = Math.abs(((a1 + a2) / 2) - g);
-      if (d > Math.PI) d = Math.PI * 2 - d;
-      if (d < 0.18) nearGap = true;
-    }
-    if (nearGap) continue;
-    fenceSegment(out, Math.cos(a1) * fenceR, Math.sin(a1) * fenceR, Math.cos(a2) * fenceR, Math.sin(a2) * fenceR);
+  r.arc({ dDeg: 36, R: R0, rise: 0.3, hx: 1.8, hz: 1.6, band: 'medium', skin: isle(PAL.wheat) }); // landing island, offset from the wheel top so it doesn't overhang
+  r.checkpoint('Windmill Heights', 2); dress(C.flag3);
+  out.windmills.push({ x: r.x - Math.cos(r.angle) * 0.2, y: r.y + 2.0, z: r.z, rotY: r.angle + 1, scale: 0.5 });
+
+  // ════ DISTRICT 3 — THE WATERWORKS (y23 → ~34; waterfalls + a fast flume) ════
+  r.arc({ dDeg: 36, R: R0, rise: 2.0, hx: 1.4, hz: 1.4, band: 'medium', skin: isle(PAL.water) });
+  out.waterfalls.push({ x: r.x, y: r.y - 4, z: r.z + 0.2, w: 1.3, h: 9, rotY: 0 });
+  out.waterwheels.push({ x: r.x + 1.6, y: r.y - 0.8, z: r.z, radius: 1.5, rotY: r.angle + Math.PI / 2 });
+  r.arc({ dDeg: 36, R: R0, rise: 2.0, hx: 1.3, hz: 1.3, band: 'medium', skin: isle(PAL.water) });
+  // a rising WATER-LIFT (a bubbling platform) — board it on the spiral, ride up
+  {
+    const la = r.angle + (26 * Math.PI) / 180, lx = Math.cos(la) * R0, lz = Math.sin(la) * R0;
+    const llow = r.y - 0.1, lhigh = r.y + 4.6;
+    mover(out, { ax: lx, ay: llow, az: lz, bx: lx, by: lhigh, bz: lz, hx: 1.4, hy: 0.18, hz: 1.4, period: 5, color: C.water, style: 'lift' });
+    out.waterfalls.push({ x: lx, y: lhigh - 4, z: lz + 1.5, w: 1.2, h: 9, rotY: 0 });
+    r.link(lx, llow + 0.18, lz, 1.4, 1.4, 'medium', 'jump');
+    out.edges.push({ ax: lx, ay: llow + 0.18, az: lz, bx: lx, by: lhigh + 0.18, bz: lz, band: 'easy', kind: 'mover' });
+    r.x = lx; r.y = lhigh + 0.18; r.z = lz; r.hx = 1.4; r.hz = 1.4; r.angle = la;
   }
+  r.arc({ dDeg: 30, R: R0, rise: 1.4, hx: 1.9, hz: 1.7, band: 'medium', skin: isle(PAL.water) });
+  r.checkpoint('The Waterworks', 3); dress(C.flag2, true);
 
-  // ─────────────────────────────────────────────────────────────
-  //                  CLIMBING ROUTES (8 paths)
-  // ─────────────────────────────────────────────────────────────
-  // Player physics constraints:
-  //   single jump apex ≈ 3.0m (vy² / 2g = 169/56)
-  //   double jump apex ≈ 4.8m
-  //   single flat horizontal jump ≈ 6.5m, double ≈ 9m
-  //   climb ladder = walk in volume, hold W = +4 m/s up
-  //
-  // Difficulty bands:
-  //   trivial: gap ≤ 1m  (walk-up)
-  //   easy:    gap ≤ 2m  (comfortable single jump)
-  //   medium:  gap ≤ 2.7m
-  //   hard:    gap ≤ 3.0m (right at single-jump limit)
-  //   double:  gap ≤ 4.5m (requires double jump)
-
-  // ── SPINE: central spiral tower (route #0 — the destination all spokes feed into)
-  //    22 steps of 0.43m rise each, radius 3.7 → outside platform footprint
-  //    → top step's top y = 9.4 = platform top y → seamless walk-on.
-  spiralTower(out, 0, 0, 0, 9.4);
-  out.flags.push({ x: 0, y: 9.4 + 2.4, z: 0, rotY: 0, color: C.flag1 });
-
-  // ── 8 IDENTICAL SPOKES around the central tower ───────────────────
-  //    Each spoke uses the same vertical/horizontal profile (climbSpoke);
-  //    only the rotation, colors, and entry-pad landmark differ. All 8
-  //    merge at y=9.4 on a landing ring at radius 5, then bridge into
-  //    the central tower top (radius ~2.8). Every gap is EASY.
-  //
-  //    Spokes are offset by π/8 (22.5°) from the cardinal axes so they
-  //    thread BETWEEN the 4 diagonal cottages (at ±14, ±14) instead of
-  //    colliding with them. The fence perimeter has 8 matching gaps.
-  const spokeColors: Array<{ base: string; top: string; flag: string; marker: 'lantern' | 'pine' | 'blossom' | 'mushroom' }> = [
-    { base: C.dirt,      top: C.grassDeep,  flag: C.flag2, marker: 'lantern' },
-    { base: C.dirtDark,  top: C.grassDark,  flag: C.flag5, marker: 'mushroom' },
-    { base: C.dirt,      top: C.grassDeep,  flag: C.flag3, marker: 'blossom' },
-    { base: C.dirtDark,  top: C.grassDark,  flag: C.flag1, marker: 'pine' },
-    { base: C.dirt,      top: C.grassDeep,  flag: C.flag2, marker: 'blossom' },
-    { base: C.dirtDark,  top: C.grassDark,  flag: C.flag5, marker: 'pine' },
-    { base: C.dirt,      top: C.grassDeep,  flag: C.flag4, marker: 'lantern' },
-    { base: C.dirtDark,  top: C.grassDark,  flag: C.flag1, marker: 'mushroom' },
-  ];
-  const rTowerEdge = 2.8;
-  for (let i = 0; i < 8; i++) {
-    const angle = SPOKE_OFFSET + (i / 8) * Math.PI * 2;
-    const s = spokeColors[i];
-    climbSpoke(out, {
-      angle,
-      rOuter: 22,
-      rInner: 5,
-      rTower: rTowerEdge,
-      mergeY: 9.4,
-      baseColor: s.base,
-      topColor: s.top,
-      flagColor: s.flag,
-      marker: s.marker,
-    });
+  // ════ DISTRICT 4 — THE NIGHT MARKET (y34 → ~45; CONVERGING CARGO CARTS) ════
+  r.arc({ dDeg: 34, R: R0, rise: 2.0, hx: 1.5, hz: 1.5, band: 'medium', skin: isle(PAL.market) });
+  // lantern-strung market island
+  for (let i = 0; i < 3; i++) lantern(out, r.x + (i - 1) * 0.8, r.y, r.z - 0.6, 1.3);
+  decoBox(out, r.x, r.y + 1.6, r.z, 1.4, 0.06, 1.0, C.roofCoral, { cast: false }); // awning
+  // CONVERGING CARTS: ride cart A out, transfer to cart B as they converge, ride
+  // to the far island. They meet in the middle on a cycle — mistime the transfer
+  // and you're left on a cart that carries you back (or shoved off).
+  {
+    // Lane runs between the near island and a FAR island further around the
+    // spiral (both solid footholds), so the dismount lands cleanly on-ring.
+    const nx = r.x, nz = r.z, ly = r.y + 0.5;
+    const eAng = r.angle + (66 * Math.PI) / 180;
+    const fx = Math.cos(eAng) * R0, fz = Math.sin(eAng) * R0, fyTop = ly; // level with the carts → clean step-off, no overhang
+    islet(out, fx, fz, fyTop, 1.8, 1.6, PAL.market.top, PAL.market.side); // FAR market island (solid)
+    const dx = fx - nx, dz = fz - nz, len = Math.hypot(dx, dz) || 1, ux = dx / len, uz = dz / len;
+    const mx = (nx + fx) / 2, mz = (nz + fz) / 2;
+    // cart A: near-side → just before mid ; cart B: far-side → just after mid.
+    // Same period/phase → both reach the middle together (the "smash"); transfer
+    // across the 2.6 m gap only in that window, or ride back and retry.
+    mover(out, { ax: nx + ux * 2.6, ay: ly, az: nz + uz * 2.6, bx: mx - ux * 1.3, by: ly, bz: mz - uz * 1.3, hx: 1.3, hy: 0.16, hz: 1.3, period: 5, color: C.woodLight, style: 'cart' });
+    mover(out, { ax: fx - ux * 2.6, ay: ly, az: fz - uz * 2.6, bx: mx + ux * 1.3, by: ly, bz: mz + uz * 1.3, hx: 1.3, hy: 0.16, hz: 1.3, period: 5, color: C.woodLight, style: 'cart' });
+    r.link(nx + ux * 2.6, ly + 0.16, nz + uz * 2.6, 1.3, 1.3, 'medium', 'jump');     // board cart A
+    out.edges.push({ ax: nx + ux * 2.6, ay: ly + 0.16, az: nz + uz * 2.6, bx: mx - ux * 1.3, by: ly + 0.16, bz: mz - uz * 1.3, band: 'easy', kind: 'mover' });
+    out.edges.push({ ax: mx - ux * 1.3, ay: ly + 0.16, az: mz - uz * 1.3, bx: mx + ux * 1.3, by: ly + 0.16, bz: mz + uz * 1.3, band: 'easy', kind: 'jump' }); // transfer A→B
+    out.edges.push({ ax: mx + ux * 1.3, ay: ly + 0.16, az: mz + uz * 1.3, bx: fx - ux * 2.6, by: ly + 0.16, bz: fz - uz * 2.6, band: 'easy', kind: 'mover' }); // ride B
+    out.edges.push({ ax: fx - ux * 2.6, ay: ly + 0.16, az: fz - uz * 2.6, bx: fx, by: fyTop, bz: fz, band: 'easy', kind: 'jump' }); // step onto far island
+    r.x = fx; r.y = fyTop; r.z = fz; r.hx = 1.8; r.hz = 1.6; r.angle = eAng;
   }
+  r.checkpoint('Night Market', 4); dress(C.flag1, true);
+  decoBox(out, r.x, r.y + 1.6, r.z - 0.4, 1.5, 0.06, 1.1, C.roofTeal, { cast: false }); // awning
 
-  // ─────────────────────────────────────────────────────────────
-  //              SPINE: central tower top → goal
-  // ─────────────────────────────────────────────────────────────
-  // y=9.4 (central tower top)
-  //  → stepper at y=11.4 (gap 2m, easy)
-  //  → stepper at y=13.4
-  //  → stepper at y=15.4
-  //  → stepper at y=17.4
-  //  → floating cottage 1 base at y=18 (gap 0.6m, walk)
-  //  → bridge to floating cottage 2 (y=21) — handled below
-  //  → windmill base ladder up to y=30 (TRUE LADDER)
-  //  → cloud staircase 32 → 34 → 36 → 38
-  //  → crystal spires 40 → 41.2 → 42.5
-  //  → goal y=46
+  // ════ DISTRICT 5 — ICE REACH (y45 → ~55; CRACKING ICE + crystals) ════
+  r.arc({ dDeg: 34, R: R0, rise: 2.0, hx: 1.4, hz: 1.4, band: 'medium', skin: isle(PAL.ice) });
+  // a dash across CRACKING ICE platforms — keep moving or drop
+  r.arc({ dDeg: 30, R: R0, rise: 1.8, hx: 1.2, hz: 1.2, band: 'medium', skin: ice });
+  r.arc({ dDeg: 30, R: R0, rise: 1.8, hx: 1.1, hz: 1.1, band: 'medium', skin: ice });
+  r.arc({ dDeg: 30, R: R0, rise: 1.8, hx: 1.2, hz: 1.2, band: 'medium', skin: ice });
+  r.arc({ dDeg: 32, R: R0, rise: 1.9, hx: 1.6, hz: 1.5, band: 'medium', skin: isle(PAL.ice) }); // solid landing
+  // a couple of crystal spires + icicles for vibe
+  decoCone(out, r.x + 1.4, r.y + 0.9, r.z, 0.4, 1.6, C.crystalC, { segments: 6, emissive: C.crystalC, emissiveIntensity: 0.3, cast: false });
+  r.arc({ dDeg: 34, R: R0, rise: 2.0, hx: 1.0, hz: 1.0, band: 'medium', skin: crys(C.crystalC) });
+  r.arc({ dDeg: 36, R: R0, rise: 2.0, hx: 1.0, hz: 1.0, band: 'hard', skin: crys(C.crystalA) });
 
-  // Stepping stones above the tower — tight spacing so every gap is a single jump
-  //   gap from tower edge (radius 2.8) → s1: 1m horiz, 2m up — trivial
-  //   s1 → s2: 4.5m horiz, 2m up — easy (single jump max ≈5.14m at 2m up)
-  //   s2 → s3: 3.9m horiz, 2m up — easy
-  //   s3 → s4: 4.3m horiz, 2m up — easy
-  platform(out,  3.0, 11.4,  1.0, 1.0, 1.0, C.dirtDark, C.grassDeep);  // s1
-  platform(out, -1.0, 13.4, -1.0, 1.0, 1.0, C.dirtDark, C.grassDeep);  // s2
-  platform(out,  2.0, 15.4,  1.5, 1.0, 1.0, C.dirtDark, C.grassDeep);  // s3
-  platform(out, -1.5, 17.4, -1.0, 1.2, 1.2, C.dirtDark, C.grassDeep);  // s4
+  // ════ SUMMIT — a beacon island at the peak's shoulder (y~55) ════
+  r.arc({ dDeg: 30, R: R0 - 2, rise: 2.0, hx: 2.4, hz: 2.4, band: 'medium', skin: isle({ top: '#eef4f8', side: '#b4bac2' }) });
+  const sX = r.x, sY = r.y, sZ = r.z;
+  decoCyl(out, sX, sY + 0.5, sZ, 1.0, 1.0, C.crystalB, { segments: 8, emissive: C.crystalB, emissiveIntensity: 0.2, cast: false });
+  decoCone(out, sX, sY + 1.6, sZ, 1.2, 1.2, C.crystalA, { segments: 8, emissive: C.crystalA, emissiveIntensity: 0.25, cast: false });
+  out.goal = { x: sX, y: sY + 2.6, z: sZ };
+  out.summitY = sY;
+  for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2; out.flags.push({ x: sX + Math.cos(a) * 1.9, y: sY + 0.3, z: sZ + Math.sin(a) * 1.9, rotY: a, color: [C.flag1, C.flag2, C.flag3, C.flag4, C.flag5][i % 5] }); }
 
-  // Floating cottage 1 (lavender + gold) — base platform reachable from stepper 4
-  const floatY = 18;
-  solidBox(out, -3, floatY - 0.1, -5, 2.2, 0.1, 2.0, C.grassDeep);
-  decoBox(out, -3, floatY + 0.02, -5, 2.2, 0.04, 2.0, C.grass, { cast: false });
-  solidBox(out, -3, floatY + 1.0, -5, 1.5, 1.0, 1.3, C.wallLav);
-  // Half-grade cap, footprint matches the smaller wall dimension (1.3) so it
-  // doesn't clip past the walls on either axis. Sits flush on the wall top.
-  decoCone(out, -3, floatY + 2.325, -5, 1.3 * Math.SQRT2, 0.65, C.roofGold, { rotY: Math.PI / 4, segments: 4 });
-  out.boxes.push({ x: -3, y: floatY + 2.325, z: -5, hx: 1.3, hy: 0.325, hz: 1.3 });
-  decoBox(out, -3.5, floatY + 1.2, -3.7, 0.3, 0.25, 0.04, C.windowGlow, { emissive: C.windowGlow, emissiveIntensity: 0.7 });
-  decoBox(out, -2.4, floatY + 2.3, -5.5, 0.18, 0.5, 0.18, '#7f1d1d');
-  out.smoke.push({ x: -2.4, y: floatY + 2.8, z: -5.5 });
-  // Bridge: stepper 4 (-1.5, 17.4, -1) → cottage 1 base (-3, 18, -5). Gap 0.6m up, ~4m horiz.
-  bridge(out, -1.5, -1.0, -3.0, -3.0, 17.7);
-
-  // Floating cottage 2 (cream + teal) — reachable from cottage 1 via bridge
-  const floatY2 = 21;
-  solidBox(out, 5, floatY2 - 0.1, 2, 2.2, 0.1, 2.0, C.grassDeep);
-  decoBox(out, 5, floatY2 + 0.02, 2, 2.2, 0.04, 2.0, C.grass, { cast: false });
-  solidBox(out, 5, floatY2 + 1.0, 2, 1.5, 1.0, 1.3, C.wallCream);
-  // Half-grade cap, footprint matches the smaller wall dimension (1.3) so it
-  // doesn't clip past the walls on either axis. Sits flush on the wall top.
-  decoCone(out, 5, floatY2 + 2.325, 2, 1.3 * Math.SQRT2, 0.65, C.roofTeal, { rotY: Math.PI / 4, segments: 4 });
-  out.boxes.push({ x: 5, y: floatY2 + 2.325, z: 2, hx: 1.3, hy: 0.325, hz: 1.3 });
-  decoBox(out, 5, floatY2 + 1.2, 3.3, 0.3, 0.25, 0.04, C.windowGlow, { emissive: C.windowGlow, emissiveIntensity: 0.7 });
-  decoBox(out, 5.5, floatY2 + 2.3, 1.5, 0.18, 0.5, 0.18, '#7f1d1d');
-  out.smoke.push({ x: 5.5, y: floatY2 + 2.8, z: 1.5 });
-  // Bridge cottage 1 base → cottage 2 base: 4m horiz, 3m up — handled as inclined plank
-  bridge(out, -1.0, -4.5, 3.5, 0.7, 20.0);
-  // small landing step between them
-  platform(out, 1.2, 19.5, -2.0, 0.6, 0.6, C.dirtDark, C.grassDeep);
-
-  // ── Windmill tower with TRUE LADDER up its exterior ──
-  const wmBaseY = 23;
-  const wmTowerH = 6.5;        // tower top y = 29.5; with cap platform → 30
-  const wmCX = 10, wmCZ = -6;
-  decoCyl(out, wmCX, wmBaseY + wmTowerH / 2, wmCZ, 0.9, wmTowerH, C.cobble, { segments: 14 });
-  solidBox(out, wmCX, wmBaseY + wmTowerH / 2, wmCZ, 0.7, wmTowerH / 2, 0.7, C.cobble);
-  // Cap platform — top y = 30. Player will exit ladder onto this.
-  solidBox(out, wmCX, 29.95, wmCZ, 1.6, 0.05, 1.6, C.cobbleEdge);
-  // Decorative roof, no collider — half-grade, flush with cap platform top (y=30)
-  decoCone(out, wmCX, 30 + 0.4, wmCZ, 2.0, 0.8, C.roofGold, { rotY: Math.PI / 4, segments: 4 });
-  out.windmills.push({ x: wmCX, y: wmBaseY + wmTowerH * 0.7, z: wmCZ + 0.85, rotY: 0 });
-  // TRUE LADDER on the +z face of the windmill, from windmill base entry y=23 up to y=30
-  ladderVolume(out, {
-    cx: wmCX, cz: wmCZ + 1.0,
-    baseY: 23, topY: 30,
-    faceX: 0, faceZ: 1,
-    width: 1.1,
-  });
-  // Bridge from floating cottage 2 base → windmill ladder entry at y=23
-  // cottage 2 base top is y=floatY2 (21). Need to reach y=23 ladder base.
-  // Use a small mid-stepper.
-  platform(out, 7.5, 22.0, -2, 0.8, 0.8, C.dirtDark, C.grassDeep);
-  bridge(out, 5.0 + 1.6, 2.0, 7.5, -2.0 + 0.8, 22.2);
-  bridge(out, 7.5, -2.8, wmCX, wmCZ + 1.15, 23.0);
-
-  // ── FIRST MOVING PLATFORM (vertical lift) ──
-  // Player must time the boarding from the windmill cap.
-  mover(out, {
-    ax: 6, ay: 31, az: -4,
-    bx: 1, by: 37, bz: 0,
-    hx: 1.5, hy: 0.18, hz: 1.5,    // 3m × 3m × 0.36m
-    period: 7, phase: 0,
-    color: C.roofGold,
-  });
-
-  // The single cloud — landing pad after the first moving platform
-  cloudPlatform(out, -1, 37, 2, 1.8);
-
-  // ── PREPARATION PLATFORM ──
-  // Stable 4m × 4m deck at y=39.5. Watch p1 (the shuttle) cycle from A→B→A,
-  // and p2 (the wall) slide in and out, before committing.
-  //   cloud (-1, 37, 2) → prep (0, 39.5, 4): 2.24m horiz, 2.5m up — EASY single jump
-  solidBox(out, 0, 39.4, 4, 2.0, 0.1, 2.0, C.cobble, { rough: 0.85 });
-  decoBox(out, 0, 39.55, 4, 2.05, 0.05, 2.05, C.cobbleEdge, { cast: false });
-  // Small flag at the corner so it's visible from below
-  decoCyl(out, 1.6, 40.5, 3.6, 0.04, 1.4, C.wood);
-  decoBox(out, 1.95, 40.7, 3.6, 0.4, 0.3, 0.03, C.flag5);
-
-  // ── SHUTTLE (p1) ──
-  // Oscillates A=(0,40,6) ↔ B=(0,40,-8). Period 6s.
-  //   prep edge (0, 39.5, 6) → p1 at A (0, 40, 6): 0m horiz, 0.5m up — TRIVIAL
-  //   p1 at B (0, 40, -8) → destination (0, 40, -10): 2m flat — EASY
-  mover(out, {
-    ax: 0, ay: 40, az: 6,
-    bx: 0, by: 40, bz: -8,
-    hx: 1.5, hy: 0.18, hz: 1.5,
-    period: 6, phase: 0,
-    color: C.roofGold,
-    kind: 'platform',
-  });
-
-  // ── BLOCKER WALL (p2) ──
-  // Slides along x at z=-2 (the midpoint of p1's path). Period 12s = 2× p1's
-  // period. OUT at x=-4 (clear), IN at x=0 (on p1's path).
-  //
-  //   t=0       p1 at A,   p2 at x=-4 (OUT)        ← SAFE BOARDING WINDOW
-  //   t=1.5s    p1 mid fwd1, p2 at x=-3.41 (clear)
-  //   t=3s      p1 at B,   p2 at x=-2  (halfway, near edge)
-  //   t=4.5s    p1 mid back1, p2 at x=-0.59 (BLOCKING)
-  //   t=6s      p1 at A,   p2 at x=0   (fully IN)  ← danger
-  //   t=7.5s    p1 mid fwd2, p2 at x=-0.59 (BLOCKING)
-  //   t=9s      p1 at B,   p2 at x=-2  (halfway)
-  //   t=10.5s   p1 mid back2, p2 at x=-3.41 (clear) — back-from-B is safe!
-  //   t=12s     p1 at A,   p2 at x=-4 (OUT) — cycle restarts
-  //
-  // Pattern: fwd1 SAFE / back1 BLOCKED / fwd2 BLOCKED / back2 SAFE.
-  // Player should ONLY board at t=0, 12, 24, ... (every 12s).
-  // Wall is tall enough that single-jumping over it is borderline; the
-  // intended play is timing.
-  mover(out, {
-    ax: -4, ay: 41, az: -2,
-    bx:  0, by: 41, bz: -2,
-    hx: 2.0, hy: 1.4, hz: 0.4,     // 4m wide × 2.8m tall × 0.8m thick
-    period: 12, phase: 0,
-    color: '#dc2626',               // visceral red
-    kind: 'wall',
-  });
-  // Decorative spikes on the wall — visual hazard cue
-  // (rendered statically along the wall length; they shift with the wall via MoverNode)
-
-  // ── DESTINATION PLATFORM ──
-  solidBox(out, 0, 39.9, -10, 1.6, 0.1, 1.6, C.cobble, { rough: 0.85 });
-  decoBox(out, 0, 40.05, -10, 1.65, 0.05, 1.65, C.cobbleEdge, { cast: false });
-
-  // ── Crystal spires up to the goal ──
-  // From destination platform (0, 40, -10):
-  //   → crystal 1 cap y=42:   1.5m horiz, 2m up — EASY
-  //   → crystal 2 cap y=43:   2.3m horiz, 1m up — EASY
-  //   → crystal 3 cap y=44:   2.0m horiz, 1m up — EASY
-  //   → goal pad:             1.5m horiz, 0.5m up — TRIVIAL
-  crystal(out, -1.5, 40.5, -11.5, 1.5);
-  crystal(out,  1,   41.5, -12,   1.5);
-  crystal(out, -1,   42.5, -12.5, 1.5);
-
-  // ── Final goal pad and orb ──
-  const goalY = 44.5;
-  solidBox(out, 0, goalY - 0.3, -13, 1.6, 0.2, 1.6, C.crystalA);
-  decoCone(out, 0, goalY - 0.75, -13, 1.8, 0.7, C.crystalA, { rotY: 0, segments: 8 });
-  out.goal = { x: 0, y: goalY + 0.6, z: -13 };
-
-  // ─────────────────────────────────────────────────────────────
-  //                  DECORATIONS + FLAVOR
-  // ─────────────────────────────────────────────────────────────
-  // Peripheral trees
-  const treePositions: Array<{ x: number; z: number; kind: 'tree' | 'pine' | 'blossom'; size: number }> = [
-    { x: -32, z:  22, kind: 'blossom', size: 4 },
-    { x:  32, z:  22, kind: 'tree',    size: 5 },
-    { x: -32, z: -22, kind: 'pine',    size: 6 },
-    { x:  32, z: -22, kind: 'tree',    size: 5 },
-    { x:   8, z:  30, kind: 'blossom', size: 3.5 },
-    { x:  -8, z:  30, kind: 'blossom', size: 4 },
-    { x:  14, z: -28, kind: 'tree',    size: 4 },
-    { x: -14, z: -28, kind: 'pine',    size: 5 },
-    { x:   0, z:  34, kind: 'pine',    size: 5 },
-    { x:  34, z:   0, kind: 'pine',    size: 6 },
-    { x: -34, z:   8, kind: 'tree',    size: 5 },
-    { x: -34, z: -10, kind: 'blossom', size: 4 },
-    { x:  34, z:  10, kind: 'tree',    size: 5 },
-    { x:   6, z:   8, kind: 'blossom', size: 2.8 },
-    { x:  -6, z:   8, kind: 'tree',    size: 3 },
-    { x:  -6, z:  -8, kind: 'blossom', size: 3 },
-    { x:   6, z:  -8, kind: 'pine',    size: 3.5 },
-  ];
-  for (const t of treePositions) {
-    if (t.kind === 'tree') tree(out, { x: t.x, z: t.z, height: t.size });
-    else if (t.kind === 'pine') pineTree(out, t.x, t.z, t.size);
-    else blossomTree(out, t.x, t.z, t.size);
-  }
-
-  // Lanterns along the plaza ring
-  for (let i = 0; i < 12; i++) {
-    const ang = (i / 12) * Math.PI * 2;
-    lantern(out, Math.cos(ang) * 7, 0, Math.sin(ang) * 7, 2.2);
-  }
-  for (const [lx, lz] of [[-3, -3], [3, -3], [-3, 3], [3, 3]] as const) {
-    lantern(out, lx, 0, lz, 2.6);
-  }
-
-  // Mushrooms — varied colors, scattered around the perimeter
-  for (let i = 0; i < 50; i++) {
-    const ang = rng() * Math.PI * 2;
-    const r = 12 + rng() * 30;
-    const x = Math.cos(ang) * r;
-    const z = Math.sin(ang) * r;
-    const c: 'red' | 'purple' | 'blue' = rng() > 0.7 ? 'purple' : rng() > 0.5 ? 'blue' : 'red';
-    mushroom(out, x, z, 0.6 + rng() * 0.7, c);
-  }
-
-  // Flower patches
-  for (let i = 0; i < 36; i++) {
-    const ang = rng() * Math.PI * 2;
-    const r = 8 + rng() * 30;
-    flowerPatch(out, Math.cos(ang) * r, Math.sin(ang) * r, 5 + Math.floor(rng() * 5), rng);
-  }
-
-  // Village clutter
-  barrel(out, -3, 16 + 1.7);
-  barrel(out, -3.5, 16 + 2.4);
-  barrel(out, 3.2, 16 + 1.7);
-  haystack(out, 2.5, -16 - 1.1);
-  haystack(out, 3.2, -16 + 1.5);
-  haystack(out, -2.8, -16 - 2.0);
-  bench(out, -4, 4, Math.PI / 4);
-  bench(out, 4, -4, -Math.PI / 4);
-  bench(out, -4, -4, -Math.PI / 4);
-  sign(out, -7, -7, Math.PI / 4, C.wallOlive);
-  sign(out,  7,  7, -Math.PI * 3 / 4, C.wallPeach);
-  sign(out, -14, 0, Math.PI / 2, C.wallMint);
-  sign(out,  14, 0, -Math.PI / 2, C.wallSky);
-  // Flags on each cottage roof
-  for (const c of cottages) {
-    out.flags.push({ x: c.cx, y: 4.6, z: c.cz, rotY: 0, color: [C.flag1, C.flag2, C.flag3, C.flag4, C.flag5][Math.floor(rng() * 5)] });
-  }
-
-  out.maxHeight = goalY + 0.6;
+  out.maxHeight = out.goal.y;
   return out;
 }
 
 // ────────────────────── spawn points ──────────────────────
 
-/** Spawn points on the larger map — outside the village, near the perimeter. */
-export const SPAWN_POINTS: ReadonlyArray<readonly [number, number, number]> = [
-  [-26,  1,  26],
-  [ 26,  1,  26],
-  [-26,  1, -26],
-  [ 26,  1, -26],
-  [-34,  1,   8],
-  [ 34,  1,   8],
-  [-34,  1,  -8],
-  [ 34,  1,  -8],
-  [  8,  1,  34],
-  [ -8,  1,  34],
-  [  8,  1, -34],
-  [ -8,  1, -34],
-];
+/** Spawn ring around the foot of the spire — players gather all around the
+ *  base and funnel up onto the trailhead terrace to start the spiral. */
+export const SPAWN_POINTS: ReadonlyArray<readonly [number, number, number]> =
+  Array.from({ length: 12 }, (_, i) => {
+    const a = (i / 12) * Math.PI * 2;
+    return [Math.round(Math.cos(a) * 13 * 100) / 100, 1, Math.round(Math.sin(a) * 13 * 100) / 100] as readonly [number, number, number];
+  });
 
 export function spawnFor(socketId: string): { x: number; y: number; z: number } {
   let h = 0;

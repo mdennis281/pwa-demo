@@ -3,10 +3,12 @@ import type { PlayerSnapshot, ServerDebugStats } from '@pwa-demo/shared';
 import { elevateAdmin, getSocket, logoutAdmin, socketMetrics } from '../lib/socket';
 
 type ClientMetrics = {
-  rxEvents: number;
-  rxBytesEst: number;
-  txEvents: number;
-  txBytesEst: number;
+  rxEvPerSec: number;
+  rxBytesPerSec: number;
+  txEvPerSec: number;
+  txBytesPerSec: number;
+  rxBytesTotal: number;
+  txBytesTotal: number;
   snapshotCount: number;
   snapshotRate: number; // per second, rolling
   myPing: number | null;
@@ -31,17 +33,16 @@ export default function DebugPanel({
 }) {
   const [serverStats, setServerStats] = useState<ServerDebugStats | null>(null);
   const [clientMetrics, setClientMetrics] = useState<ClientMetrics>({
-    rxEvents: 0,
-    rxBytesEst: 0,
-    txEvents: 0,
-    txBytesEst: 0,
-    snapshotCount: 0,
-    snapshotRate: 0,
-    myPing: null,
+    rxEvPerSec: 0, rxBytesPerSec: 0, txEvPerSec: 0, txBytesPerSec: 0,
+    rxBytesTotal: 0, txBytesTotal: 0, snapshotCount: 0, snapshotRate: 0, myPing: null,
   });
 
-  const prevSnapRef = useRef({ count: snapshotCount, at: Date.now() });
-  const snapshotRateRef = useRef(0);
+  // Previous sample for delta-based per-second rates.
+  const prevRef = useRef({
+    rxEvents: socketMetrics.rxEvents, rxBytes: socketMetrics.rxBytesEst,
+    txEvents: socketMetrics.txEvents, txBytes: socketMetrics.txBytesEst,
+    snap: snapshotCount, at: Date.now(),
+  });
 
   // Subscribe to debug stats when open
   useEffect(() => {
@@ -55,25 +56,30 @@ export default function DebugPanel({
     };
   }, []);
 
-  // Rolling snapshot rate + refresh client metrics every 500ms
+  // Compute per-second rates from deltas every second.
   useEffect(() => {
     const id = setInterval(() => {
       const now = Date.now();
-      const elapsed = (now - prevSnapRef.current.at) / 1000;
-      const delta = snapshotCount - prevSnapRef.current.count;
-      snapshotRateRef.current = elapsed > 0 ? delta / elapsed : 0;
-      prevSnapRef.current = { count: snapshotCount, at: now };
-
-      setClientMetrics({
-        rxEvents: socketMetrics.rxEvents,
-        rxBytesEst: socketMetrics.rxBytesEst,
-        txEvents: socketMetrics.txEvents,
-        txBytesEst: socketMetrics.txBytesEst,
+      const p = prevRef.current;
+      const dt = Math.max(0.001, (now - p.at) / 1000);
+      const m = {
+        rxEvPerSec: (socketMetrics.rxEvents - p.rxEvents) / dt,
+        rxBytesPerSec: (socketMetrics.rxBytesEst - p.rxBytes) / dt,
+        txEvPerSec: (socketMetrics.txEvents - p.txEvents) / dt,
+        txBytesPerSec: (socketMetrics.txBytesEst - p.txBytes) / dt,
+        rxBytesTotal: socketMetrics.rxBytesEst,
+        txBytesTotal: socketMetrics.txBytesEst,
         snapshotCount,
-        snapshotRate: snapshotRateRef.current,
+        snapshotRate: (snapshotCount - p.snap) / dt,
         myPing,
-      });
-    }, 500);
+      };
+      setClientMetrics(m);
+      prevRef.current = {
+        rxEvents: socketMetrics.rxEvents, rxBytes: socketMetrics.rxBytesEst,
+        txEvents: socketMetrics.txEvents, txBytes: socketMetrics.txBytesEst,
+        snap: snapshotCount, at: now,
+      };
+    }, 1000);
     return () => clearInterval(id);
   }, [snapshotCount, myPing]);
 
@@ -95,12 +101,11 @@ export default function DebugPanel({
       <section className="space-y-1">
         <p className="text-slate-500 text-[9px] uppercase tracking-wider mb-1">client</p>
         <Row label="ping" value={myPing !== null ? `${myPing}ms` : '—'} highlight={pingColor(myPing)} />
-        <Row label="rx events" value={fmtN(clientMetrics.rxEvents)} />
-        <Row label="rx bytes (est)" value={fmtBytes(clientMetrics.rxBytesEst)} />
-        <Row label="tx events" value={fmtN(clientMetrics.txEvents)} />
-        <Row label="tx bytes (est)" value={fmtBytes(clientMetrics.txBytesEst)} />
-        <Row label="snapshots recv" value={String(clientMetrics.snapshotCount)} />
-        <Row label="snapshot rate" value={`${clientMetrics.snapshotRate.toFixed(1)}/s`} />
+        <Row label="↓ rx" value={`${fmtBytesRate(clientMetrics.rxBytesPerSec)} · ${clientMetrics.rxEvPerSec.toFixed(0)}/s`} />
+        <Row label="↑ tx" value={`${fmtBytesRate(clientMetrics.txBytesPerSec)} · ${clientMetrics.txEvPerSec.toFixed(0)}/s`} />
+        <Row label="rx total" value={fmtBytes(clientMetrics.rxBytesTotal)} highlight="text-slate-400" />
+        <Row label="tx total" value={fmtBytes(clientMetrics.txBytesTotal)} highlight="text-slate-400" />
+        <Row label="snapshots" value={`${clientMetrics.snapshotRate.toFixed(1)}/s (${clientMetrics.snapshotCount})`} />
       </section>
 
       {/* server metrics */}
@@ -115,7 +120,8 @@ export default function DebugPanel({
           <Row label="rx bytes (est)" value={fmtBytes(serverStats.rxBytesEst)} />
           <Row label="tx events" value={fmtN(serverStats.txEvents)} />
           <Row label="tx bytes (est)" value={fmtBytes(serverStats.txBytesEst)} />
-          <Row label="last tick bytes" value={fmtBytes(serverStats.lastTickBytes)} highlight={tickBytesColor(serverStats.lastTickBytes)} />
+          <Row label="↑ broadcast" value={fmtBytesRate(serverStats.lastTickBytes * serverStats.tickHz)} highlight={tickBytesColor(serverStats.lastTickBytes)} />
+          <Row label="last tick bytes" value={fmtBytes(serverStats.lastTickBytes)} highlight="text-slate-400" />
           <Row label="loop lag p50" value={`${serverStats.loopLagP50Ms.toFixed(1)}ms`} highlight={lagColor(serverStats.loopLagP50Ms)} />
           <Row label="loop lag p99" value={`${serverStats.loopLagP99Ms.toFixed(1)}ms`} highlight={lagColor(serverStats.loopLagP99Ms)} />
           <Row label="rss" value={`${serverStats.rssMb.toFixed(0)} MB`} />
@@ -269,6 +275,12 @@ function fmtBytes(b: number): string {
   if (b >= 1_048_576) return `${(b / 1_048_576).toFixed(1)} MB`;
   if (b >= 1_024) return `${(b / 1_024).toFixed(1)} KB`;
   return `${b} B`;
+}
+
+function fmtBytesRate(b: number): string {
+  if (b >= 1_048_576) return `${(b / 1_048_576).toFixed(1)} MB/s`;
+  if (b >= 1_024) return `${(b / 1_024).toFixed(1)} KB/s`;
+  return `${Math.round(b)} B/s`;
 }
 
 function fmtUptime(ms: number): string {

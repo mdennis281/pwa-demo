@@ -7,7 +7,17 @@ const LOOK_SENS_Y = 0.004;
 const PITCH_MIN = -1.2;
 const PITCH_MAX = 0.5;
 
-export default function TouchControls({ active }: { active: boolean }) {
+export default function TouchControls({
+  active,
+  flightUnlocked = false,
+  flying = false,
+  onToggleFly,
+}: {
+  active: boolean;
+  flightUnlocked?: boolean;
+  flying?: boolean;
+  onToggleFly?: () => void;
+}) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [joy, setJoy] = useState<{ cx: number; cy: number; dx: number; dy: number } | null>(null);
 
@@ -128,8 +138,33 @@ export default function TouchControls({ active }: { active: boolean }) {
         onPointerLeave={() => { input.jumpHeld = false; }}
         className="absolute bottom-8 right-8 w-28 h-28 rounded-full bg-brand-500/50 text-slate-950 font-bold text-xl shadow-lg active:scale-95 backdrop-blur-sm"
       >
-        JUMP
+        {flying ? 'UP' : 'JUMP'}
       </button>
+
+      {/* Flight: descend pad (left of jump) + a fly/land toggle (above jump). */}
+      {flying && (
+        <button
+          type="button"
+          data-jump="1"
+          onPointerDown={(e) => { e.preventDefault(); input.descendHeld = true; }}
+          onPointerUp={() => { input.descendHeld = false; }}
+          onPointerCancel={() => { input.descendHeld = false; }}
+          onPointerLeave={() => { input.descendHeld = false; }}
+          className="absolute bottom-10 right-40 w-24 h-24 rounded-full bg-sky-500/45 text-slate-950 font-bold text-lg shadow-lg active:scale-95 backdrop-blur-sm"
+        >
+          DOWN
+        </button>
+      )}
+      {flightUnlocked && (
+        <button
+          type="button"
+          data-jump="1"
+          onPointerDown={(e) => { e.preventDefault(); onToggleFly?.(); }}
+          className="absolute bottom-40 right-9 w-24 h-12 rounded-xl bg-amber-500/80 text-slate-950 font-semibold text-sm shadow-lg active:scale-95 backdrop-blur-sm"
+        >
+          {flying ? '↓ Land' : '✈ Fly'}
+        </button>
+      )}
     </div>
   );
 }

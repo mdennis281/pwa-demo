@@ -156,3 +156,6 @@ apps/web/dev-dist/
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+
+# local world-preview screenshots (dev)
+.preview/

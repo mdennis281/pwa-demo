@@ -26,12 +26,15 @@ Thumbs.db
 .idea
 .vscode
 
-# Repo-local tooling not needed for runtime
+# Repo-local tooling not needed for runtime.
+# NOTE: scripts/ is intentionally NOT ignored — the Dockerfile runs
+# scripts/gen-screenshots.mjs (and pwa-assets.config.ts) at build time to
+# regenerate the gitignored PWA icons/screenshots into apps/web/public before
+# vite bundles them. Without it the deployed manifest points at 404ing icons.
 .planning
 .gsd
 .claude
 deploy
-scripts
 docker-compose.yml
 README.md
 LICENSE

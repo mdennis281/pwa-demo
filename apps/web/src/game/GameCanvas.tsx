@@ -2,6 +2,7 @@ import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import { Canvas, useThree } from '@react-three/fiber';
 import type * as THREE from 'three';
 import Player from './Player';
+import { triggerWave } from './Character';
 import RemotePlayer from './RemotePlayer';
 import Spectator from './Spectator';
 import SkyDome from './SkyDome';
@@ -69,6 +70,10 @@ export default function GameCanvas({
   const [isAdmin, setIsAdmin] = useState(false);
   const [myPing, setMyPing] = useState<number | null>(null);
   const [snapshotCount, setSnapshotCount] = useState(0);
+  const [summitReached, setSummitReached] = useState(false);
+  const [flightOn, setFlightOn] = useState(false);
+  const [cpBanner, setCpBanner] = useState<string | null>(null);
+  const cpTimerRef = useRef<number | null>(null);
   const myStateRef = useRef({ y: spawn.y, maxY: spawn.y });
 
   const isHost = lobby.hostId === selfId;
@@ -95,10 +100,20 @@ export default function GameCanvas({
         e.preventDefault();
         setAdminOpen((v) => !v);
       }
+      // F toggles earned flight once the summit has been reached — but never
+      // when typing into a form field (admin name / max-players, etc.).
+      if (!e.ctrlKey && e.code === 'KeyF' && summitReached) {
+        const tgt = e.target as HTMLElement | null;
+        const typing = !!tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.isContentEditable);
+        if (!typing) {
+          e.preventDefault();
+          setFlightOn((v) => !v);
+        }
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [canAdmin]);
+  }, [canAdmin, summitReached]);
 
 
   // Periodic ping probe so the server tracks each player's ping
@@ -114,6 +129,9 @@ export default function GameCanvas({
       s.off('pong:reply', onPong);
     };
   }, []);
+
+  // Cancel any pending checkpoint-banner timer on unmount (leave lobby etc.)
+  useEffect(() => () => { if (cpTimerRef.current) window.clearTimeout(cpTimerRef.current); }, []);
 
   useKeyboard(true);
   const { locked } = useMouseLook(canvasEl, !isTouch);
@@ -139,6 +157,27 @@ export default function GameCanvas({
     getSocket().emit('game:input', i);
     myStateRef.current.y = i.y;
     if (i.y > myStateRef.current.maxY) myStateRef.current.maxY = i.y;
+  };
+
+  const handleReachSummit = () => {
+    setSummitReached(true);
+    triggerWave(2400); // everyone waves to celebrate
+  };
+  const handleCheckpoint = (name: string) => {
+    setCpBanner(name);
+    if (cpTimerRef.current) window.clearTimeout(cpTimerRef.current);
+    cpTimerRef.current = window.setTimeout(() => setCpBanner(null), 2600);
+  };
+
+  // Flight is active from the dev cheat OR the earned summit reward. The reward
+  // version is capped just above the summit and softly leashed to the map.
+  const flightUnlocked = summitReached;
+  const flying = cheats.fly || (flightUnlocked && flightOn);
+  const flyProp = {
+    active: flying,
+    capY: cheats.fly ? Infinity : world.summitY + 6,
+    minY: cheats.fly ? -Infinity : 0.4,
+    leashR: cheats.fly ? Infinity : 95,
   };
 
   const others = snapshot?.players.filter((p) => p.id !== selfId && p.role === 'player') ?? [];
@@ -207,10 +246,16 @@ export default function GameCanvas({
               boxes={world.boxes}
               ladders={world.ladders}
               movers={world.movers}
+              breakaways={world.breakaways}
               spawn={spawn}
               cheats={cheats}
+              fly={flyProp}
+              goal={world.goal}
+              checkpoints={world.checkpoints}
               onInput={sendInput}
               onJumpsChange={setJumpsUsed}
+              onReachSummit={handleReachSummit}
+              onCheckpoint={handleCheckpoint}
             />
           ) : (
             <Spectator />
@@ -240,11 +285,20 @@ export default function GameCanvas({
         pointerLocked={locked}
         jumpsUsed={jumpsUsed}
         isPlayer={role === 'player'}
+        zones={world.zones}
+        summitY={world.summitY}
+        flying={flying}
+        flightUnlocked={flightUnlocked}
         debugOpen={debugOpen}
         onToggleDebug={() => setDebugOpen((v) => !v)}
       />
 
-      <TouchControls active={isTouch} />
+      <TouchControls
+        active={isTouch}
+        flightUnlocked={flightUnlocked}
+        flying={flying}
+        onToggleFly={() => setFlightOn((v) => !v)}
+      />
 
       <CheatMenu
         open={cheatsOpen}
@@ -288,6 +342,33 @@ export default function GameCanvas({
         </div>
       )}
 
+      {/* Checkpoint banner — transient */}
+      {cpBanner && (
+        <div className="absolute top-24 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
+          <div className="bg-emerald-900/85 backdrop-blur border border-emerald-400/50 rounded-lg px-4 py-2 text-emerald-100 text-sm font-semibold tracking-wide shadow-lg">
+            ✓ Checkpoint — {cpBanner}
+          </div>
+        </div>
+      )}
+
+      {/* Summit reached → offer flight */}
+      {summitReached && (
+        <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center">
+          <div className="bg-slate-950/85 backdrop-blur border border-amber-400/50 rounded-xl px-5 py-3 text-center pointer-events-auto shadow-2xl">
+            <div className="text-amber-300 font-bold text-lg">🏔 You reached the summit!</div>
+            <div className="text-slate-300 text-xs mt-1">
+              {flying ? 'Flying — Space up · Shift down · F to land' : 'Flight unlocked — soar over the whole world'}
+            </div>
+            <button
+              onClick={() => setFlightOn((v) => !v)}
+              className="mt-2 bg-amber-500/90 hover:bg-amber-400 text-slate-900 font-semibold text-sm px-4 py-1.5 rounded-md"
+            >
+              {flying ? 'Land (F)' : 'Take flight ✈ (F)'}
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="absolute top-4 right-1/2 translate-x-1/2 z-30 flex gap-2">
         {canAdmin && (
           <button
@@ -310,7 +391,7 @@ export default function GameCanvas({
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30">
           <div className="bg-slate-950/80 backdrop-blur border border-slate-700 rounded-lg px-4 py-3 text-center text-slate-300 text-sm max-w-sm">
             {role === 'player'
-              ? 'click anywhere to capture mouse — climb to the glowing orb!'
+              ? 'click anywhere to capture mouse — climb to the summit beacon!'
               : 'click anywhere to capture mouse — spectator mode, WASD to fly'}
           </div>
         </div>

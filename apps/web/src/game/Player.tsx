@@ -5,7 +5,8 @@ import Character from './Character';
 import { input, consumeJump } from './controls/input';
 import { PLAYER, rayHitDistance, stepPlayer } from './physics';
 import type { Box } from './physics';
-import type { Mover } from './worldgen';
+import { BREAK_DELAY_MS, BREAK_RESPAWN_MS } from './worldgen';
+import type { Mover, Checkpoint, Breakaway } from './worldgen';
 import type { LocalInput } from '@pwa-demo/shared';
 
 const MOVE_SPEED = 7.0;
@@ -52,11 +53,28 @@ function onLadderVolume(x: number, y: number, z: number, ladders: Box[]): boolea
 function tickMover(m: Mover): void {
   m.prevX = m.x; m.prevY = m.y; m.prevZ = m.z;
   const t = Date.now() / 1000;
+  if (m.orbit) {
+    // continuous rotation around a pivot in the x-y plane (a turning wheel)
+    const ang = (t / m.period + m.phase) * Math.PI * 2;
+    m.x = m.orbit.px + Math.cos(ang) * m.orbit.radius;
+    m.y = m.orbit.py + Math.sin(ang) * m.orbit.radius;
+    m.z = m.orbit.pz;
+    return;
+  }
   const phase = ((t / m.period + m.phase) % 1 + 1) % 1; // 0..1
   const s = (1 - Math.cos(phase * Math.PI * 2)) / 2;    // 0..1..0 (sine ease)
   m.x = m.ax + (m.bx - m.ax) * s;
   m.y = m.ay + (m.by - m.ay) * s;
   m.z = m.az + (m.bz - m.az) * s;
+}
+
+/** Recycle expired breakaways back to solid. */
+function tickBreakaways(breaks: Breakaway[], now: number): void {
+  for (const b of breaks) if (b.triggeredAt >= 0 && now >= b.triggeredAt + BREAK_RESPAWN_MS) b.triggeredAt = -1;
+}
+/** A breakaway is solid (collidable) while idle or still cracking. */
+function breakawaySolid(b: Breakaway, now: number): boolean {
+  return b.triggeredAt < 0 || now < b.triggeredAt + BREAK_DELAY_MS;
 }
 
 /** Find which mover the player is standing on, if any. Returns -1 if none.
@@ -67,7 +85,9 @@ function moverUnderfoot(x: number, y: number, z: number, movers: Mover[]): numbe
     const m = movers[i];
     if (m.kind === 'wall') continue;
     const topY = m.y + m.hy;
-    if (Math.abs(y - topY) < 0.06 &&
+    // Tolerance absorbs a frame of float rounding / brief slow-fall so a rider
+    // isn't dropped (which would let the next sweep shove them off sideways).
+    if (y > topY - 0.14 && y < topY + 0.05 &&
         Math.abs(x - m.x) < m.hx + PLAYER.rxz &&
         Math.abs(z - m.z) < m.hz + PLAYER.rxz) {
       return i;
@@ -81,24 +101,42 @@ export default function Player({
   boxes,
   ladders,
   movers,
+  breakaways,
   spawn,
   cheats,
+  fly,
+  goal,
+  checkpoints,
   onInput,
   onDoubleJump,
   onJumpsChange,
+  onReachSummit,
+  onCheckpoint,
 }: {
   variant: number;
   boxes: Box[];
   ladders: Box[];
   movers: Mover[];
+  breakaways: Breakaway[];
   spawn: { x: number; y: number; z: number };
   cheats: { fly: boolean; infiniteJumps: boolean };
+  /** Active flight (dev cheat OR earned summit reward). capY/minY clamp the
+   *  vertical range; leashR softly tethers you to the map horizontally. */
+  fly: { active: boolean; capY: number; minY: number; leashR: number };
+  goal: { x: number; y: number; z: number };
+  checkpoints: Checkpoint[];
   onInput: (i: LocalInput) => void;
   onDoubleJump?: () => void;
   onJumpsChange?: (used: number) => void;
+  onReachSummit?: () => void;
+  onCheckpoint?: (name: string, zone: number) => void;
 }) {
   const ref = useRef<THREE.Group>(null);
   const spawnRef = useRef(spawn);
+  // Respawn anchor: starts at spawn, upgrades to the highest checkpoint reached.
+  const respawnRef = useRef(spawn);
+  const reachedCpRef = useRef(-Infinity);
+  const summitDoneRef = useRef(false);
   const stateRef = useRef({
     x: spawn.x, y: spawn.y, z: spawn.z,
     vx: 0, vy: 0, vz: 0,
@@ -120,6 +158,7 @@ export default function Player({
 
   useEffect(() => {
     spawnRef.current = spawn;
+    if (reachedCpRef.current === -Infinity) respawnRef.current = spawn;
   }, [spawn]);
 
   useEffect(() => {
@@ -137,8 +176,8 @@ export default function Player({
     const cdt = Math.min(dt, 0.05);
     const now = state.clock.elapsedTime * 1000;
 
-    // ── FLY CHEAT — bypass everything else and move freely ──
-    if (cheats.fly) {
+    // ── FLY — bypass physics and move freely (dev cheat OR earned reward) ──
+    if (fly.active) {
       const yaw = input.yaw;
       const fwd = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
       const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
@@ -150,10 +189,16 @@ export default function Player({
         vx = (moveX / mag) * FLY_SPEED;
         vz = (moveZ / mag) * FLY_SPEED;
       }
-      const vy = (input.jumpHeld ? FLY_SPEED : 0) - (input.descendHeld ? FLY_SPEED : 0);
+      let vy = (input.jumpHeld ? FLY_SPEED : 0) - (input.descendHeld ? FLY_SPEED : 0);
       s.x += vx * cdt;
       s.y += vy * cdt;
       s.z += vz * cdt;
+      // Ceiling just above the summit so flight is a victory lap, not an escape.
+      if (s.y > fly.capY) { s.y = fly.capY; if (vy > 0) vy = 0; }
+      if (s.y < fly.minY) { s.y = fly.minY; if (vy < 0) vy = 0; }
+      // Soft horizontal leash back toward the world centre.
+      const rad = Math.hypot(s.x, s.z);
+      if (rad > fly.leashR) { const k = fly.leashR / rad; s.x *= k; s.z *= k; }
       s.vx = vx; s.vy = vy; s.vz = vz;
       s.grounded = false;
       s.jumpsUsed = 0;
@@ -271,8 +316,10 @@ export default function Player({
       }
     }
 
-    // ── update moving platform positions BEFORE physics so collisions see them ──
+    // ── update moving platforms + recycle breakaways BEFORE physics ──
     for (const m of movers) tickMover(m);
+    tickBreakaways(breakaways, now);
+    const activeBreaks = breakaways.filter((b) => breakawaySolid(b, now));
 
     // ── carry the player if they were standing on a mover last frame ──
     if (s.mountedMoverIdx >= 0 && s.mountedMoverIdx < movers.length) {
@@ -286,10 +333,8 @@ export default function Player({
       s.z += m.z - m.prevZ;
     }
 
-    // Compose a combined box list (movers as Boxes at their current positions)
-    const combinedBoxes = movers.length > 0
-      ? [...boxes, ...movers as unknown as Box[]]
-      : boxes;
+    // Compose a combined box list: static + movers + currently-solid breakaways.
+    const combinedBoxes: Box[] = [...boxes, ...movers, ...activeBreaks];
 
     // ── physics ──
     const result = stepPlayer({
@@ -317,13 +362,51 @@ export default function Player({
       }
       // Track which mover (if any) we're standing on — for next frame's carry.
       s.mountedMoverIdx = moverUnderfoot(s.x, s.y, s.z, movers);
+      // Standing on an idle ice platform starts it cracking (then it falls away).
+      for (const b of breakaways) {
+        if (b.triggeredAt >= 0) continue;
+        const topY = b.y + b.hy;
+        if (s.y > topY - 0.14 && s.y < topY + 0.06 && Math.abs(s.x - b.x) < b.hx + PLAYER.rxz && Math.abs(s.z - b.z) < b.hz + PLAYER.rxz) {
+          b.triggeredAt = now;
+        }
+      }
     } else {
       s.mountedMoverIdx = -1;
     }
 
-    // Respawn if we fall off
-    if (s.y < -20) {
-      const sp = spawnRef.current;
+    // ── checkpoints: arm the highest reached respawn anchor (no downgrade) ──
+    // Circular zone, and a tight vertical band so you must actually be standing
+    // on the checkpoint deck (not a nearby surface at a different height).
+    if (s.grounded) {
+      for (const c of checkpoints) {
+        if (c.y <= reachedCpRef.current) continue;
+        const dxz = Math.hypot(s.x - c.x, s.z - c.z);
+        if (dxz < c.radius && Math.abs(s.y - c.y) < 0.9) {
+          reachedCpRef.current = c.y;
+          respawnRef.current = { x: c.x, y: c.y + 0.25, z: c.z };
+          onCheckpoint?.(c.name, c.zone);
+        }
+      }
+    }
+
+    // ── summit reached → win + unlock flight (once) ──
+    if (!summitDoneRef.current) {
+      const dx = s.x - goal.x, dy = (s.y + PLAYER.cy) - goal.y, dz = s.z - goal.z;
+      if (dx * dx + dy * dy + dz * dz < 2.7 * 2.7) {
+        summitDoneRef.current = true;
+        onReachSummit?.();
+      }
+    }
+
+    // Respawn to the last checkpoint. The key case: with a central tower over a
+    // solid ground plate you rarely fall below y=-20 — you just thud onto the
+    // village floor. So also respawn the moment you drop well below the armed
+    // checkpoint (a clear fall), which is what makes checkpoints actually work.
+    const cpY = reachedCpRef.current;
+    const fellOffWorld = s.y < -20;
+    const fellBelowCheckpoint = cpY > -Infinity && s.y < cpY - 6;
+    if (fellOffWorld || fellBelowCheckpoint) {
+      const sp = respawnRef.current;
       s.x = sp.x; s.y = sp.y; s.z = sp.z;
       s.vx = 0; s.vy = 0; s.vz = 0;
       s.jumpsUsed = 0;
@@ -356,7 +439,9 @@ export default function Player({
     const tz = s.z;
     // Raycast from camera target outward to ideal cam pos; pull camera in on hit.
     const desiredDist = input.cameraDist;
-    const hit = rayHitDistance(tx, ty, tz, dirX, dirY, dirZ, desiredDist, boxes);
+    // Occlude against movers too, so the camera doesn't phase inside the lift /
+    // shuttle / ramp / timing-wall during the most dramatic sections.
+    const hit = rayHitDistance(tx, ty, tz, dirX, dirY, dirZ, desiredDist, combinedBoxes);
     const actualDist = Math.max(CAMERA_MIN_DIST, Math.min(desiredDist, hit - CAMERA_PAD));
     _camTarget.set(tx + dirX * actualDist, ty + dirY * actualDist, tz + dirZ * actualDist);
     camera.position.lerp(_camTarget, 1 - Math.pow(CAMERA_LERP_TAU, cdt));

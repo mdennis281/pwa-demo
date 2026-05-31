@@ -20,6 +20,12 @@ const ee = {
   installed: false,
 };
 
+/** Trigger the everyone-waves animation directly (used by the summit
+ *  celebration), without faking a keyboard event. */
+export function triggerWave(durationMs = 1600) {
+  ee.waveUntil = performance.now() + durationMs;
+}
+
 function installGlobalEgg() {
   if (ee.installed || typeof window === 'undefined') return;
   ee.installed = true;

@@ -84,6 +84,12 @@ export function getSocket() {
     socketMetrics.rxEvents++;
     try { socketMetrics.rxBytesEst += JSON.stringify(args).length; } catch { /* noop */ }
   });
+  // Count outbound traffic too (game:input at 20Hz, pings, etc.) — without this
+  // the debug panel's client tx counters stay at zero.
+  socket.onAnyOutgoing((_event: string, ...args: unknown[]) => {
+    socketMetrics.txEvents++;
+    try { socketMetrics.txBytesEst += JSON.stringify(args).length; } catch { /* noop */ }
+  });
 
   // Re-elevate on every connection (initial + after any reconnect), since
   // the server holds isAdmin in per-socket data and a reconnect = fresh socket.

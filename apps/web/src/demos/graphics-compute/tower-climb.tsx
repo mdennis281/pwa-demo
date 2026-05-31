@@ -19,6 +19,7 @@
 import { useEffect, useState } from 'react';
 import LobbyList from '../../game/lobby/LobbyList';
 import GameCanvas from '../../game/GameCanvas';
+import WorldPreview from '../../game/WorldPreview';
 import { getSocket } from '../../lib/socket';
 import type { LobbyState, Role } from '@pwa-demo/shared';
 
@@ -29,6 +30,16 @@ type EnteredLobby = {
 };
 
 export default function TowerClimbDemo() {
+  // Dev-only no-socket world preview for headless look-and-feel validation.
+  // ?preview=<presetName> (or ?preview=1 with cx/cy/cz/tx/ty/tz coords).
+  const preview = typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('preview')
+    : null;
+  if (preview) return <WorldPreview preset={preview} />;
+  return <TowerClimbGame />;
+}
+
+function TowerClimbGame() {
   const [entered, setEntered] = useState<EnteredLobby | null>(null);
   const [selfId, setSelfId] = useState<string | undefined>(getSocket().id);
 

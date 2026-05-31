@@ -28,9 +28,21 @@ COPY packages/shared    packages/shared
 COPY apps/server        apps/server
 COPY apps/web           apps/web
 
+# PWA icon/screenshot generators. Their outputs (apps/web/public/pwa-*.png,
+# maskable-*.png, apple-*.png, favicon.ico, screenshots/) are gitignored, so a
+# clean Cloud Build checkout arrives without them. Locally the root `prebuild`
+# hook regenerates them; the per-workspace build below skips that hook, so we
+# run the generators explicitly here — BEFORE `vite build` copies public/ into
+# dist. Skipping this ships a manifest whose icons 404 (served as index.html by
+# the SPA fallback), which makes the app non-installable. Both generators use
+# sharp only — no headless browser — so this adds no meaningful image weight.
+COPY pwa-assets.config.ts ./
+COPY scripts              scripts
+
 # `shared` is consumed as raw TS by Vite (web) but as compiled .js by Node
 # (server), so it must build first. See repo memory note.
 RUN npm -w @pwa-demo/shared run build
+RUN npm run gen:assets && npm run gen:screenshots
 RUN npm -w @pwa-demo/web    run build
 RUN npm -w @pwa-demo/server run build
 
