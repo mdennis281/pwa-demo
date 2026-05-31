@@ -3,7 +3,7 @@ import type {
   ClientToServerEvents,
   ServerToClientEvents,
   GameSnapshot,
-  PlayerSnapshot,
+  PackedPlayer,
 } from '@pwa-demo/shared';
 import {
   allLobbies,
@@ -108,24 +108,31 @@ function startTickLoop(io: Server<ClientToServerEvents, ServerToClientEvents>): 
     let tickBytes = 0;
     for (const lobby of allLobbies()) {
       if (lobby.paused) continue; // skip snapshot when paused — clients freeze
-      const players: PlayerSnapshot[] = [...lobby.players.values()].map((p) => ({
-        id: p.socketId,
-        clientId: p.clientId,
-        displayName: p.displayName,
-        character: p.character,
-        role: p.role,
-        isHost: p.isHost,
-        maxHeight: p.maxHeight,
-        x: p.x,
-        y: p.y,
-        z: p.z,
-        yaw: p.yaw,
-        state: p.state,
-        ping: getPingFn(p.socketId),
-      }));
+      // Pack only the per-tick-dynamic state into a quantized tuple and let the
+      // client merge the static fields (name/character/role/host) from the
+      // roster it already has via lobby:state. Cuts the per-player payload ~4×
+      // vs. the old full-object snapshot — the difference between a 50-player
+      // room melting and not. Encoding is inlined (mirror of PackedPlayer in
+      // @pwa-demo/shared) because the compiled server can't import that package
+      // at runtime. Quantize: positions/maxHeight ×100 (cm), yaw ×100 (centirad).
+      const players: PackedPlayer[] = [...lobby.players.values()].map((p) => [
+        p.socketId,
+        Math.round(p.x * 100),
+        Math.round(p.y * 100),
+        Math.round(p.z * 100),
+        Math.round(p.yaw * 100),
+        p.state === 'run' ? 1 : p.state === 'air' ? 2 : 0,
+        Math.round(p.maxHeight * 100),
+        getPingFn(p.socketId) ?? -1,
+      ]);
       const snap: GameSnapshot = { lobbyId: lobby.id, t: now, players };
       const snapStr = JSON.stringify(snap);
-      io.to(lobbyRoom(lobby.id)).emit('game:snapshot', snap);
+      // volatile: if a client's send buffer is backed up, DROP this snapshot for
+      // them instead of queuing it. A stale position is worthless, and reliable
+      // queuing is exactly what produced 27s ping at 50 players — the outbound
+      // buffer grew without bound and every pong/ack/input-ack queued behind it.
+      // Dropping keeps latency honest and the server responsive under load.
+      io.volatile.to(lobbyRoom(lobby.id)).emit('game:snapshot', snap);
       serverMetrics.txEvents++;
       serverMetrics.txBytesEst += snapStr.length;
       // Per-recipient fanout cost is what hurts at 50 players — one emit

@@ -55,18 +55,48 @@ export type LobbyState = {
   players: LobbyPlayer[];
 };
 
+/** Movement/anim state. Sent on the wire as an index into this tuple (0/1/2)
+ *  to keep the hot snapshot small. */
+export const PLAYER_STATES = ['idle', 'run', 'air'] as const;
+export type PlayerState = (typeof PLAYER_STATES)[number];
+
 export type PlayerSnapshot = LobbyPlayer & {
   x: number;
   y: number;
   z: number;
   yaw: number;
   /** simple flag set by client when in moving/jumping state */
-  state: 'idle' | 'run' | 'air';
+  state: PlayerState;
   /** last measured round-trip ping in ms, null if not yet probed */
   ping: number | null;
 };
 
+/**
+ * Compact 20Hz position tuple — the hot path the tick loop broadcasts to every
+ * player in a lobby each tick. A fixed-order tuple avoids repeating JSON keys
+ * ~50× per snapshot, and every real is quantized to an int (positions and
+ * maxHeight ×100 = cm precision; yaw ×100 = centiradians) to shrink it further:
+ *
+ *   [socketId, x, y, z, yaw, stateIdx, maxHeight, ping]
+ *
+ * Static per-player fields (displayName, character, role, isHost, clientId) are
+ * deliberately NOT sent here — at 20Hz they'd dominate the payload. The client
+ * joins each tuple back to the lobby roster it already holds from `lobby:state`
+ * (see GameCanvas). `ping` is ms, or -1 when not yet probed. The compiled server
+ * can't import this package at runtime, so it inlines the (trivial) encode; the
+ * client decodes against {@link PLAYER_STATES}. Keep the two in sync.
+ */
+export type PackedPlayer = [string, number, number, number, number, number, number, number];
+
 export type GameSnapshot = {
+  lobbyId: string;
+  t: number;
+  players: PackedPlayer[];
+};
+
+/** Client-side decoded snapshot: each {@link PackedPlayer} merged with its
+ *  roster entry back into the rich {@link PlayerSnapshot} the game UI consumes. */
+export type DecodedSnapshot = {
   lobbyId: string;
   t: number;
   players: PlayerSnapshot[];
@@ -77,7 +107,7 @@ export type LocalInput = {
   y: number;
   z: number;
   yaw: number;
-  state: 'idle' | 'run' | 'air';
+  state: PlayerState;
 };
 
 export type LobbyCreate = {

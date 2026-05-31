@@ -11,10 +11,13 @@ const BRAND_BG = '#0f172a';
 
 // Extend the standard preset:
 //   1. Emit pwa-96x96.png (Chrome wants exactly 96 for shortcut jumplist icons)
-//   2. Override the apple-touch-icon background so transparent corners pick
-//      up the brand navy instead of the default white (defaultResizeOptions
-//      ships background:'white', which produces a visible white border on
-//      iOS home screen because logo.svg has rx="96" rounded corners).
+//   2. Make the apple-touch-icon FULL-BLEED. The preset default is padding:0.3
+//      + background:'white', which shrinks the logo to 70% and frames it — and
+//      because logo.svg already has rx="96" rounded corners, iOS then masks it
+//      AGAIN, producing an inset "square-in-a-square" on the home screen. We
+//      set padding:0 so the logo fills the tile edge-to-edge and iOS applies
+//      its own (single) squircle mask. background stays brand-navy so the
+//      logo's rounded corners blend with the fill rather than going white.
 const basePreset = {
   ...minimal2023Preset,
   transparent: {
@@ -23,6 +26,7 @@ const basePreset = {
   },
   apple: {
     ...minimal2023Preset.apple,
+    padding: 0,
     resizeOptions: { fit: 'contain' as const, background: BRAND_BG },
   },
 };

@@ -20,7 +20,8 @@ import TouchControls from './controls/TouchControls';
 import { useKeyboard } from './controls/useKeyboard';
 import { useMouseLook } from './controls/useMouseLook';
 import { input } from './controls/input';
-import type { AuthStatus, GameSnapshot, LocalInput, LobbyState, Role } from '@pwa-demo/shared';
+import type { AuthStatus, GameSnapshot, DecodedSnapshot, PlayerSnapshot, LocalInput, LobbyState, Role } from '@pwa-demo/shared';
+import { PLAYER_STATES } from '@pwa-demo/shared';
 import { getSocket } from '../lib/socket';
 
 /** Kick off shader compilation for every material in the scene up-front.
@@ -99,7 +100,7 @@ export default function GameCanvas({
   const [shadowsOn, setShadowsOn] = useState(resolveInitialShadows);
   const shadowRes = useMemo(resolveShadowRes, []);
   const toggleShadows = (on: boolean) => { setShadowsOn(on); saveShadowPref(on); };
-  const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
+  const [snapshot, setSnapshot] = useState<DecodedSnapshot | null>(null);
   const [canvasEl, setCanvasEl] = useState<HTMLCanvasElement | null>(null);
   const [isTouch, setIsTouch] = useState(false);
   const [jumpsUsed, setJumpsUsed] = useState(0);
@@ -117,6 +118,10 @@ export default function GameCanvas({
   const [cpBanner, setCpBanner] = useState<string | null>(null);
   const cpTimerRef = useRef<number | null>(null);
   const myStateRef = useRef({ y: spawn.y, maxY: spawn.y });
+  // Latest roster, read by the snapshot decoder without re-subscribing the
+  // socket listener on every lobby:state update.
+  const rosterRef = useRef(lobby.players);
+  rosterRef.current = lobby.players;
 
   const isHost = lobby.hostId === selfId;
   const canAdmin = isHost || isAdmin;
@@ -187,10 +192,29 @@ export default function GameCanvas({
   useEffect(() => {
     const s = getSocket();
     const onSnap = (snap: GameSnapshot) => {
-      if (snap.lobbyId === lobby.id) {
-        setSnapshot(snap);
-        setSnapshotCount((n) => n + 1);
+      if (snap.lobbyId !== lobby.id) return;
+      // The wire snapshot carries only quantized positions (PackedPlayer tuples).
+      // Join each against the live roster to rebuild the rich PlayerSnapshot the
+      // rest of the UI consumes; the live maxHeight/ping from the tuple override
+      // the roster's slower-updating copies.
+      const roster = new Map(rosterRef.current.map((p) => [p.id, p]));
+      const players: PlayerSnapshot[] = [];
+      for (const [id, x, y, z, yaw, st, mh, pg] of snap.players) {
+        const r = roster.get(id);
+        if (!r) continue; // just joined — shows up once its lobby:state lands
+        players.push({
+          ...r,
+          x: x / 100,
+          y: y / 100,
+          z: z / 100,
+          yaw: yaw / 100,
+          state: PLAYER_STATES[st] ?? 'idle',
+          maxHeight: mh / 100,
+          ping: pg < 0 ? null : pg,
+        });
       }
+      setSnapshot({ lobbyId: snap.lobbyId, t: snap.t, players });
+      setSnapshotCount((n) => n + 1);
     };
     s.on('game:snapshot', onSnap);
     return () => { s.off('game:snapshot', onSnap); };
