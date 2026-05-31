@@ -17,13 +17,15 @@ import type { Box } from './physics';
 //     jump graph so `worldgen.audit.ts` can independently prove it's beatable
 //     (every gap in-envelope, ≥1.6 m head clearance over every foothold).
 //
-//    Tier      y       Feel        Leg up to it
-//    Plaza     0        no-fail     —
-//    Mossledge 6        easy        rocky steps (easy jumps)        · CP1
-//    The Mill  14       medium      rope bridge + ladder            · CP2
-//    Orchard   24       med-hard    a rising lift + a leap          · CP3
-//    High Camp 35       hard        crag rocks (double jumps)       · CP4
-//    Summit    ~50      expert      clouds, sweeping ramp, crystal → BEACON
+//    District           y       Feel       Challenge                       CP
+//    Plaza              0       no-fail     —                               —
+//    Garden Rise        2–8     medium      committed single jumps          CP1
+//    Windmill Heights   9–19    hard        long leaps + the gondola wheel  CP2
+//    The Waterworks     20–28   hard        precise leaps + a water-lift    —
+//    Night Market       28–30   hard        converging carts + a double     CP3
+//    Ice Reach          30–35   brutal      cracking ice, then a breather   CP4
+//    The Crown          37–49   expert      FIVE forced double-jumps        —
+//    The Summit         ~50     win         crystal beacon → unlocks FLIGHT
 // ════════════════════════════════════════════════════════════════════════
 
 // ────────────────────── types ──────────────────────
@@ -556,9 +558,9 @@ export function generateWorld(seed = 1337): WorldData {
     { name: 'Garden Rise', minY: -5, tint: '#9be37c' },
     { name: 'Windmill Heights', minY: 11, tint: '#e3c970' },
     { name: 'The Waterworks', minY: 23, tint: '#7fc5a9' },
-    { name: 'Night Market', minY: 34, tint: '#e0883a' },
-    { name: 'Ice Reach', minY: 45, tint: '#cfeeff' },
-    { name: 'The Summit', minY: 55, tint: '#c4b5fd' },
+    { name: 'Night Market', minY: 28, tint: '#e0883a' },
+    { name: 'Ice Reach', minY: 30, tint: '#cfeeff' },
+    { name: 'The Summit', minY: 45, tint: '#c4b5fd' },
   ];
 
   // ── HOME ISLAND — the floating village you launch from ──
@@ -648,7 +650,7 @@ export function generateWorld(seed = 1337): WorldData {
     r.x = lx; r.y = lhigh + 0.18; r.z = lz; r.hx = 1.2; r.hz = 1.2; r.angle = la;
   }
   r.arc({ dDeg: 38, R: R0, rise: 1.2, hx: 1.5, hz: 1.4, band: 'hard', skin: isle(PAL.water) });
-  r.checkpoint('The Waterworks', 3); dress(C.flag2, true);
+  dress(C.flag2, true); // Waterworks checkpoint removed — the water district stays as a flagged landmark
 
   // ════ DISTRICT 4 — THE NIGHT MARKET (CONVERGING CARGO CARTS + a daredevil double) ════
   r.arc({ dDeg: 42, R: R0, rise: 1.2, hx: 1.3, hz: 1.3, band: 'hard', skin: isle(PAL.market) });
@@ -693,10 +695,16 @@ export function generateWorld(seed = 1337): WorldData {
   r.arc({ dDeg: 30, R: R0, rise: 0.8, hx: 0.6, hz: 0.6, band: 'hard', skin: ice });
   r.arc({ dDeg: 30, R: R0, rise: 0.8, hx: 0.7, hz: 0.7, band: 'hard', skin: ice });
   r.arc({ dDeg: 32, R: R0, rise: 1.4, hx: 1.4, hz: 1.3, band: 'hard', skin: isle(PAL.ice) }); // solid breather
+  r.checkpoint('Ice Reach', 5); dress(C.flag5, true); // last respawn before the crown of doubles
   decoCone(out, r.x + 1.4, r.y + 0.9, r.z, 0.4, 1.6, C.crystalC, { segments: 6, emissive: C.crystalC, emissiveIntensity: 0.3, cast: false });
-  // a forced DOUBLE-JUMP across a big gap to a tiny crystal, then a hard leap
-  r.arc({ dDeg: 54, R: R0, rise: 2.6, hx: 0.85, hz: 0.85, band: 'double', skin: crys(C.crystalA) });
-  r.arc({ dDeg: 40, R: R0, rise: 1.2, hx: 0.8, hz: 0.8, band: 'hard', skin: crys(C.crystalC) });
+  // ════ THE CROWN — five forced double-jumps for players who've mastered the
+  //     double: each leg is longer than anything below (unreachable by a single
+  //     jump, so the double is mandatory) and climbs to a higher, further beacon.
+  r.arc({ dDeg: 52, R: R0, rise: 2.8, hx: 0.85, hz: 0.85, band: 'double', skin: crys(C.crystalA) });
+  r.arc({ dDeg: 50, R: R0, rise: 2.8, hx: 0.85, hz: 0.85, band: 'double', skin: crys(C.crystalC) });
+  r.arc({ dDeg: 52, R: R0, rise: 2.9, hx: 0.85, hz: 0.85, band: 'double', skin: crys(C.crystalD) });
+  r.arc({ dDeg: 50, R: R0, rise: 2.8, hx: 0.85, hz: 0.85, band: 'double', skin: crys(C.crystalB) });
+  r.arc({ dDeg: 52, R: R0, rise: 2.8, hx: 0.85, hz: 0.85, band: 'double', skin: crys(C.crystalA) });
 
   // ════ SUMMIT — a beacon island at the peak's shoulder ════
   r.arc({ dDeg: 30, R: R0 - 2, rise: 1.4, hx: 2.2, hz: 2.2, band: 'hard', skin: isle({ top: '#eef4f8', side: '#b4bac2' }) });
