@@ -17,6 +17,10 @@ html, body, #root {
 
 body {
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Suppress the browser's native pull-to-refresh / overscroll glow at the top
+     so our custom pull-to-refresh (components/PullToRefresh.tsx) is the only
+     one — otherwise both fire and the gesture double-triggers. */
+  overscroll-behavior-y: contain;
 }
 
 .titlebar-area {

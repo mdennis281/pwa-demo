@@ -3,6 +3,7 @@ import { Link, Outlet, useLocation } from 'react-router';
 import { onInstallAvailability, promptInstall, getDisplayMode } from '../lib/install';
 import ConnectionBadge from './ConnectionBadge';
 import DemoSidebar from './DemoSidebar';
+import PullToRefresh from './PullToRefresh';
 import PwaUpdater from './PwaUpdater';
 import VersionBadge from './VersionBadge';
 import ModalHost from '../demos/_ModalHost';
@@ -112,6 +113,7 @@ export default function Layout() {
         <Outlet />
       </main>
 
+      <PullToRefresh />
       <ModalHost />
       <PwaUpdater />
     </div>
