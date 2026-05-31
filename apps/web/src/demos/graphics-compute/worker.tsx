@@ -5,7 +5,7 @@ import { DemoPage } from '../_DemoPage';
 type Result = { count: number; ms: number } | null;
 
 export default function WebWorkerDemo() {
-  const [n, setN] = useState(2_000_000);
+  const [n, setN] = useState(200_000_000);
   const [mainResult, setMainResult] = useState<Result>(null);
   const [workerResult, setWorkerResult] = useState<Result>(null);
   const [mainRunning, setMainRunning] = useState(false);
