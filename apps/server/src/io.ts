@@ -82,6 +82,16 @@ export function attachSocket(io: Server<ClientToServerEvents, ServerToClientEven
   }, 1000);
 
   io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>) => {
+    // Stable per-tab identity from the client handshake. Unlike socket.id it
+    // survives reconnects, so we key reconnect reconciliation (see joinLobby)
+    // on it. Falls back to socket.id for clients that don't send one — the
+    // load-test bots, which each connect once and never need re-association.
+    const handshakeAuth = (socket.handshake.auth ?? {}) as { clientId?: unknown };
+    socket.data.clientId =
+      typeof handshakeAuth.clientId === 'string' && handshakeAuth.clientId
+        ? handshakeAuth.clientId
+        : socket.id;
+
     const info: ClientInfo = {
       id: socket.id,
       userAgent: String(socket.handshake.headers['user-agent'] ?? 'unknown'),

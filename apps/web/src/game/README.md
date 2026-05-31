@@ -13,7 +13,7 @@ Server-side counterpart: [`apps/server/src/game/`](../../../server/src/game/) �
 - **Three.js + react-three-fiber.** One `<Canvas>` rooted in [`GameCanvas.tsx`](GameCanvas.tsx), DPR clamped to 1.5×, high-performance GPU preference, no stencil/alpha buffers, with a shader precompiler step before first frame to dodge first-paint jank.
 - **Client-authoritative.** The server does not run physics. Each client runs its own AABB-sweep physics, broadcasts `game:input` at 20 Hz, and the server fans out `game:snapshot` to every player in the lobby (also at 20 Hz). Remote players are rendered with a 110 ms interpolation buffer.
 - **Deterministic world.** Seed = 1337. The same plaza, spokes, cottages, staircase, crystal spires, and goal orb on every client. No world state is transmitted.
-- **Always-on Official Server.** The lobby id `tower-official` never dissolves; new browser sessions land there by default via `lobby:quick-join`. Its "host" is the sentinel `SYSTEM` socket id, so no real human can claim host authority — admin actions on it require token elevation.
+- **Always-on dedicated servers.** A fleet of always-on "Official" servers (`tower-official`, `tower-official-2`, …) never dissolves; `lobby:quick-join` drops a new session into the least-full one. How many run (default 1) and their player cap (default 25) live in the `server_config` DB table and are editable by a token-elevated admin from the server-browser admin menu — turn them all off and Quick Play goes offline. Their "host" is the sentinel `SYSTEM` socket id, so no real human can claim host authority; admin actions require token elevation.
 
 ## File inventory
 
@@ -30,7 +30,7 @@ game/
 ├─ WorldPreview.tsx     Dev-only: no-socket world view for headless screenshots
 ├─ physics.ts           AABB-sweep step + ray-vs-AABB camera occlusion
 ├─ HUD.tsx              Altitude, best height, leaderboard, control hints
-├─ AdminMenu.tsx        Host/admin pause/kick/reconfigure UI (Ctrl+A)
+├─ AdminMenu.tsx        In-game admin: pause/kick/reconfigure THIS server (Ctrl+A)
 ├─ CheatMenu.tsx        Client-side fly + infinite-jumps (Ctrl+C)
 ├─ DebugPanel.tsx       Ping + snapshot rate + player list
 ├─ SkyDome.tsx          Custom shader gradient skydome with sun
@@ -41,7 +41,8 @@ game/
 │  ├─ useMouseLook.ts   Pointer-lock yaw/pitch, wheel-zoom
 │  └─ TouchControls.tsx Dual-joystick mobile layout
 └─ lobby/
-   ├─ LobbyList.tsx     Browser + create + quick-join entry
+   ├─ LobbyList.tsx     Browser + create + quick-join entry; admin shield icon
+   ├─ ServerAdminMenu.tsx  Server-page admin: token elevation + dedicated-server fleet
    └─ CharacterPicker.tsx
 ```
 
@@ -210,17 +211,26 @@ Yaw uses shortest-arc interpolation (wraps mod 2π so a player turning from +179
 
 Ping is round-tripped via the `ping:probe` event (every 3 s); the server stamps it into the snapshot, and the HUD reads it from there.
 
-## Always-on Official Server
+## Always-on dedicated servers
 
-There is exactly one persistent lobby: `tower-official`. Properties:
+A **fleet** of persistent "Official" lobbies, sized by the admin-editable
+[`server_config`](../../../server/src/db/serverConfig.ts) (singleton DB row):
 
-- Created on server boot if it doesn't exist; never dissolves when empty
-- Host is the sentinel id `SYSTEM` — no real socket can have that id, so no human can host
-- High scores **are** persisted to `tower_high_scores` on disconnect (for non-bots)
-- Admin actions require `admin:elevate` with the `ADMIN_TOKEN` — usually the project owner or, in practice, a Slack-paste workflow
-- Regular lobbies (created via `lobby:create`) auto-dissolve when empty
+| Setting | Default | Range | Meaning |
+|---|---|---|---|
+| `dedicatedEnabled` | `true` | on/off | Master switch — off ⇒ no dedicated servers, Quick Play offline |
+| `dedicatedCount` | `1` | 1–50 | How many dedicated servers run |
+| `dedicatedPlayerCap` | `25` | 1–1000 | Player cap applied to every dedicated server |
 
-Clients usually join via `lobby:quick-join` which is idempotent against the Official Server. They can also `lobby:create` or `lobby:join` arbitrary lobbies for private play.
+Properties:
+
+- **Ids:** the first server keeps the bare id `tower-official` (back-compat with the load-test bots' `--lobby tower-official` default and old reconnecting clients); the 2nd+ are `tower-official-2`, `tower-official-3`, … `isDedicatedLobbyId()` (in [`packages/shared`](../../../../packages/shared/src/index.ts), mirrored in [`lobby.ts`](../../../server/src/game/lobby.ts)) recognizes the whole family.
+- **Reconciled** from config on boot and on every admin change via `reconcileDedicatedLobbies()` — spawns missing servers, re-caps/renames existing ones, tears down extras (booting their players back to the browser **and persisting their session high scores**, same as a normal leave).
+- **Host** is the sentinel id `SYSTEM` — no real socket can have that id, so no human can host one.
+- **High scores** are persisted to `tower_high_scores` on disconnect (non-bots) for **any** dedicated server, not just the first.
+- Regular lobbies (created via `lobby:create`) auto-dissolve when empty.
+
+Clients join via `lobby:quick-join`, which the server routes to the **least-full** dedicated server (or returns `no dedicated servers available` when they're disabled — the lobby browser then shows Quick Play as *Offline*). Reconnecting clients re-join their **exact** server by id (`lobby:join`), so a dropped player returns to the same one. Players can also `lobby:create` / `lobby:join` arbitrary lobbies for private play.
 
 ## Cheats
 
@@ -233,13 +243,38 @@ Neither is enforced server-side. Since the server is just a relay, a hacker coul
 
 ## Admin tools
 
-Ctrl+A opens [`AdminMenu.tsx`](AdminMenu.tsx) for the host or token-elevated admin. Three actions:
+There are **two** distinct admin surfaces, both unlocked by the same
+`ADMIN_TOKEN` (or, for a private lobby, by being its host):
 
-- **Pause** the lobby — server stops broadcasting snapshots; players freeze
+### 1. Server-browser admin — the fleet
+
+A subtle **shield icon** in the lobby-browser header opens
+[`ServerAdminMenu.tsx`](lobby/ServerAdminMenu.tsx). This is where token
+elevation happens (the old in-debug-panel elevate prompt was removed): paste the
+token once and it's saved to `localStorage`, so you stay elevated across
+sessions and reloads (`admin:elevate` is replayed on every (re)connect). Once
+elevated it exposes the global **dedicated-server** controls — on/off, count
+(1–50), and player cap (1–1000) — which `admin:set-config` persists to
+`server_config` and reconciles live. The icon tints amber while elevated.
+
+### 2. In-game admin — this server only
+
+Ctrl+A (or the ★ Admin button) opens [`AdminMenu.tsx`](AdminMenu.tsx) for the
+host or a token-elevated admin. It only ever acts on the **server you're
+currently connected to**:
+
+- **Pause** the lobby — server stops broadcasting snapshots. Every client freezes its physics **and loses mouse capture, with no way to re-acquire it until resume** (see below).
 - **Kick** a player — server removes them from the lobby room; their client gets `lobby:state: null`
-- **Reconfigure** — name, max-players (1–16)
+- **Reconfigure** — name, player cap (1–1000)
 
-The "host" of a regular lobby is the first to join; on disconnect the next player gets promoted. The Official Server's sentinel host means admins always require explicit elevation there.
+The "host" of a regular lobby is the first to join; on disconnect the next player gets promoted. A dedicated server's sentinel host means admins always require explicit elevation there. (Dedicated-server caps set here are runtime overrides; the next reconcile from `server_config` resets them.)
+
+### Pause semantics
+
+Pause is enforced on **both** ends so it can't be no-clipped:
+
+- **Server:** the tick loop `continue`s past paused lobbies (no `game:snapshot`), and `game:input` is ignored while paused.
+- **Client:** `Player`/`Spectator` early-return from their frame loop (no physics, no camera, no send), and `useMouseLook` is told `allowLock = !paused` — it drops pointer lock the instant the game pauses and **refuses to re-acquire it** on click until resume. The "click to capture mouse" hint is replaced by the "Game paused" overlay. This closes the old bug where a paused player could still walk around because only the network send was gated.
 
 ## Performance choices
 

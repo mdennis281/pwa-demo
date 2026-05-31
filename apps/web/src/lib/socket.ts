@@ -2,6 +2,8 @@ import { io, type Socket } from 'socket.io-client';
 import type {
   AdminResult,
   ClientToServerEvents,
+  ServerConfig,
+  ServerConfigResult,
   ServerToClientEvents,
 } from '@pwa-demo/shared';
 
@@ -16,6 +18,35 @@ export const socketMetrics = {
 };
 
 const ADMIN_TOKEN_KEY = 'adminToken';
+const CLIENT_ID_KEY = 'pwademo:clientId';
+
+/** A stable identity for THIS tab that survives socket reconnects — unlike
+ *  `socket.id`, which Socket.IO regenerates on every reconnect. We send it in
+ *  the handshake auth; the server reconciles a reconnecting player by it (so a
+ *  pre-reconnect "ghost" record is reaped instead of lingering as a second
+ *  on-screen character), and the game uses it to recognize its own avatar.
+ *  Backed by sessionStorage so a reload mid-blip still re-associates, and
+ *  scoped per-tab so two tabs are correctly two players. */
+let clientId: string | null = null;
+function ensureClientId(): string {
+  if (clientId) return clientId;
+  try {
+    const stored = sessionStorage.getItem(CLIENT_ID_KEY);
+    if (stored) return (clientId = stored);
+  } catch { /* sessionStorage unavailable (private mode etc.) */ }
+  const id =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `c_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+  clientId = id;
+  try { sessionStorage.setItem(CLIENT_ID_KEY, id); } catch { /* noop */ }
+  return id;
+}
+
+/** Stable per-tab client identity (see {@link ensureClientId}). */
+export function getClientId(): string {
+  return ensureClientId();
+}
 
 function readAdminToken(): string | null {
   if (typeof localStorage === 'undefined') return null;
@@ -59,6 +90,31 @@ export function logoutAdmin(): Promise<AdminResult> {
   });
 }
 
+/** Read the global dedicated-server config (admin only). Rejects via the
+ *  `{ok:false}` result when the socket isn't connected or the caller isn't an
+ *  elevated admin. */
+export function getServerConfig(): Promise<ServerConfigResult> {
+  return new Promise((resolve) => {
+    if (!socket) {
+      resolve({ ok: false, error: 'socket not connected' });
+      return;
+    }
+    socket.emit('admin:get-config', (res) => resolve(res));
+  });
+}
+
+/** Update the global dedicated-server config (admin only). The server clamps,
+ *  persists, reconciles the live fleet, and acks the effective config. */
+export function setServerConfig(patch: Partial<ServerConfig>): Promise<ServerConfigResult> {
+  return new Promise((resolve) => {
+    if (!socket) {
+      resolve({ ok: false, error: 'socket not connected' });
+      return;
+    }
+    socket.emit('admin:set-config', patch, (res) => resolve(res));
+  });
+}
+
 /** On a fresh connection, replay any token we've stored so the user doesn't
  *  have to re-paste it on every reload. Fire-and-forget — failure clears the
  *  stale token without bothering the UI. */
@@ -78,6 +134,9 @@ export function getSocket() {
   socket = io({
     autoConnect: true,
     transports: ['websocket', 'polling'],
+    // Stable identity that outlives reconnects (socket.id does not). Lets the
+    // server re-associate us after a drop instead of leaving a duplicate ghost.
+    auth: { clientId: ensureClientId() },
   });
 
   socket.onAny((_event: string, ...args: unknown[]) => {

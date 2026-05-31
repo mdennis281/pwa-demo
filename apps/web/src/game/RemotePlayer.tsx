@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import Character from './Character';
@@ -31,6 +31,9 @@ export default function RemotePlayer({
 }) {
   const ref = useRef<THREE.Group>(null);
   const buf = useRef<Sample[]>([]);
+  // Name-label visibility: only render the (troika SDF) label for nearby players.
+  const nearRef = useRef(false);
+  const [near, setNear] = useState(false);
 
   useEffect(() => {
     buf.current.push({
@@ -42,7 +45,7 @@ export default function RemotePlayer({
     while (buf.current.length > 2 && buf.current[0].t < cutoff) buf.current.shift();
   }, [serverTime, latestX, latestY, latestZ, latestYaw, latestState]);
 
-  useFrame(() => {
+  useFrame((state) => {
     if (!ref.current || buf.current.length === 0) return;
     const renderTime = performance.now() + buf.current[buf.current.length - 1].t - performance.now() - INTERP_MS;
     // Find two samples that bracket renderTime
@@ -69,22 +72,29 @@ export default function RemotePlayer({
     }
     ref.current.position.set(x, y, z);
     ref.current.rotation.y = yaw;
+    // Only build/draw the name label for nearby players (hysteresis 10m→12m) so
+    // distant avatars (and the whole bot fleet) skip the troika Text cost.
+    const dsq = state.camera.position.distanceToSquared(ref.current.position);
+    const want = nearRef.current ? dsq < 144 : dsq < 100;
+    if (want !== nearRef.current) { nearRef.current = want; setNear(want); }
   });
 
   return (
     <group ref={ref}>
       <Character variant={variant} state={latestState} />
-      <Text
-        position={[0, 2.05, 0]}
-        fontSize={0.22}
-        color="#f8fafc"
-        outlineColor="#0f172a"
-        outlineWidth={0.02}
-        anchorX="center"
-        anchorY="middle"
-      >
-        {isHost ? `★ ${displayName}` : displayName}
-      </Text>
+      {near && (
+        <Text
+          position={[0, 2.05, 0]}
+          fontSize={0.22}
+          color="#f8fafc"
+          outlineColor="#0f172a"
+          outlineWidth={0.02}
+          anchorX="center"
+          anchorY="middle"
+        >
+          {isHost ? `★ ${displayName}` : displayName}
+        </Text>
+      )}
     </group>
   );
 }

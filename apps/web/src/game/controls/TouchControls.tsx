@@ -92,6 +92,10 @@ export default function TouchControls({
       wrap.removeEventListener('pointermove', onMove);
       wrap.removeEventListener('pointerup', onEnd);
       wrap.removeEventListener('pointercancel', onEnd);
+      // Deactivating (e.g. game paused) mid-drag would otherwise leave a stale
+      // joystick value that resumes as drift — zero it out.
+      input.forward = 0;
+      input.right = 0;
     };
   }, [active]);
 

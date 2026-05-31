@@ -12,6 +12,7 @@ the other one). It runs on GCP Cloud Run in `us-central1` (Iowa).
 ## TL;DR
 
 - **Public URL:** https://yesweb.app — custom domain via Cloud Run Domain Mapping, Google-managed SSL
+- **Alternate URL:** https://pwa.dipduo.com — the original domain, kept mapped to the *same* service as a fallback for networks whose DNS blocklists flag the newer `yesweb.app`. Served directly (no redirect) via the `ALLOWED_HOSTS` env var.
 - **Backup URL:** https://pwa-demo-ruukiox65q-uc.a.run.app — the underlying Cloud Run service URL, always reachable
 - **www:** `www.yesweb.app` 301-redirects to the apex via in-app Express middleware
 - **Project:** `yesweb-497913`
@@ -51,7 +52,7 @@ uses 4 × A records to Google's `216.239.32-38.21` plus the IPv6 mirror set;
 | Artifact Registry | `pwa-demo` (us-central1) | Docker images, tagged `latest` + `<short-sha>` |
 | Cloud SQL Postgres 16 | `yesweb-db` | `db-f1-micro`, 10 GB SSD, zonal, daily backup 07:00 UTC |
 | Cloud Run service | `pwa-demo` | min=1 / max=3, 512 MiB, 1 vCPU, session-affinity on |
-| Cloud Run domain mapping | `yesweb.app`, `www.yesweb.app` | both → `pwa-demo` service, Google-managed cert |
+| Cloud Run domain mapping | `yesweb.app`, `www.yesweb.app`, `pwa.dipduo.com` | all → `pwa-demo` service, Google-managed cert. `pwa.dipduo.com` is the legacy/fallback domain (served directly via `ALLOWED_HOSTS`); `www.*` 301s to apex |
 | Secret Manager | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `ADMIN_TOKEN`, `DATABASE_URL` | mirrored at runtime as env vars |
 | Service account | `pwa-demo-run` (runtime) | cloudsql.client, secretmanager.secretAccessor, logging.logWriter, monitoring.metricWriter |
 | Service account | `pwa-demo-gha` (CI deployer) | cloudbuild.builds.editor, run.admin, artifactregistry.writer, iam.serviceAccountUser, storage.admin, browser, serviceusage.serviceUsageConsumer |
@@ -183,3 +184,50 @@ request after idle.
 3. **At Cloudflare** (DNS-only, grey cloud — never orange when behind a native Cloud Run mapping): add the records.
 4. **Wait** for the cert to provision (~15 min). Status: `gcloud beta run domain-mappings describe --domain=yesweb.app ...` → `CertificateProvisioned=True`.
 5. **Edge propagation** then takes another 5–15 min before all of Google's anycast IPs serve the cert reliably.
+
+## Adding a second / fallback domain (`pwa.dipduo.com`)
+
+`pwa.dipduo.com` is the project's original domain, kept pointed at the same
+Cloud Run service so users on networks whose DNS blocklists flag the newer
+`yesweb.app` still have a working URL. Two parts have to line up:
+
+**1. The app must serve the alternate host directly, not redirect it.** The
+canonical-host middleware in [`apps/server/src/index.ts`](../../apps/server/src/index.ts)
+301-redirects every non-canonical hostname to `yesweb.app`. Redirecting the
+fallback would defeat its purpose (the client's DNS blocks the redirect
+target), so the host is listed in `ALLOWED_HOSTS` (set in `cloudbuild.yaml`),
+which exempts it from the 301. `ALLOWED_HOSTS` is a comma-separated list —
+append more fallback domains there as needed. This ships automatically on the
+next deploy to `main`.
+
+**2. Map the domain in Cloud Run + add DNS.** One-time:
+
+```sh
+# Verify ownership of the parent domain once (interactive — adds a TXT record
+# at dipduo.com's DNS provider). Skip if dipduo.com is already verified for
+# this Google account.
+gcloud domains verify dipduo.com
+
+# Map the subdomain to the same service.
+gcloud beta run domain-mappings create \
+  --service=pwa-demo --domain=pwa.dipduo.com \
+  --region=us-central1 --project=yesweb-497913
+
+# Read back the DNS record gcloud wants (a subdomain → CNAME to ghs.googlehosted.com).
+gcloud beta run domain-mappings describe \
+  --domain=pwa.dipduo.com --region=us-central1 --project=yesweb-497913
+```
+
+Then at **dipduo.com's DNS provider**, add the record gcloud printed — for a
+subdomain it's a single `CNAME  pwa  →  ghs.googlehosted.com.` (DNS-only / no
+proxy if it's behind Cloudflare). Wait ~15 min for `CertificateProvisioned=True`,
+then another 5–15 min for edge propagation. Verify end-to-end:
+
+```sh
+curl -sI https://pwa.dipduo.com/api/health   # expect HTTP/2 200, NOT a 301 to yesweb.app
+```
+
+> **Note — passkeys are per-domain by design.** The WebAuthn demo derives its
+> RP ID from `req.hostname`, so a passkey registered on `yesweb.app` won't
+> authenticate on `pwa.dipduo.com` and vice-versa. Each domain works
+> independently; this is correct WebAuthn behavior, not a bug.

@@ -1,9 +1,35 @@
+import { execSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
+// Build-time version stamp. The package version is the human-facing label;
+// the short git sha + build time make every deploy uniquely identifiable so
+// the service worker's "new version → push update" flow has something to show.
+// Git sha is best-effort: CI checkouts and the LAN autodeploy box have git,
+// but a tarball build (no .git) must still succeed — hence the try/catch.
+const require = createRequire(import.meta.url);
+const pkgVersion: string = require('./package.json').version ?? '0.0.0';
+let gitSha = 'nogit';
+try {
+  gitSha = execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] })
+    .toString()
+    .trim();
+} catch {
+  /* no git available — fall back to the placeholder */
+}
+const buildTime = new Date().toISOString();
+const appVersion = `${pkgVersion}+${gitSha}`;
+
 export default defineConfig({
+  // Exposed to both the app bundle AND the service worker build — vite-plugin-pwa
+  // forwards `define` into its injectManifest compile, so sw.ts can read these.
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion),
+    __BUILD_TIME__: JSON.stringify(buildTime),
+  },
   plugins: [
     react(),
     tailwind(),
@@ -11,10 +37,17 @@ export default defineConfig({
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'sw.ts',
-      registerType: 'autoUpdate',
-      injectRegister: 'auto',
+      // 'prompt' (not 'autoUpdate') because we drive the update ourselves from
+      // lib/pwa.ts: when a new SW is waiting we show a toast, then auto-apply.
+      // autoUpdate's bundled reload-on-controllerchange would race our toast.
+      registerType: 'prompt',
+      // We register manually via `virtual:pwa-register` in lib/pwa.ts so we get
+      // the onNeedRefresh / onOfflineReady hooks and a periodic update poll —
+      // the auto-injected <script> gives none of that.
+      injectRegister: false,
       injectManifest: {
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}'],
+        // webm covers the tiny demo-video used by the PiP demo so it plays offline.
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest,webm}'],
       },
       devOptions: {
         enabled: true,

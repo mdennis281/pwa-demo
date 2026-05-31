@@ -200,8 +200,12 @@ function iceBreakaway(out: WorldData, x: number, z: number, topY: number, hx: nu
  *  plane — ride one up. Returns the lowest/highest ride points for the Route to
  *  board at the bottom and step off at the top. Adds a decorative hub + sails. */
 function gondolaWheel(out: WorldData, pivot: { x: number; y: number; z: number }, radius: number, n: number, period: number, color: string): { bottom: { x: number; y: number; z: number }; top: { x: number; y: number; z: number }; px: number; py: number; pz: number; radius: number } {
-  out.windmills.push({ x: pivot.x, y: pivot.y, z: pivot.z + 0.1, rotY: Math.PI / 2, scale: radius / 2.6 });
-  decoCyl(out, pivot.x, pivot.y, pivot.z, 0.4, 0.6, C.metalLight, { rotY: Math.PI / 2, segments: 12 });
+  // Sails sweep in their local x-y plane (spin about local z), and the gondolas
+  // orbit in the world x-y plane — so the decorative windmill must sit at rotY 0
+  // to stay coplanar with the platforms. A y-rotation would tilt the sail plane
+  // 90° off the wheel (axle onto world x), which looks broken.
+  out.windmills.push({ x: pivot.x, y: pivot.y, z: pivot.z + 0.1, rotY: 0, scale: radius / 2.6 });
+  decoCyl(out, pivot.x, pivot.y, pivot.z, 0.4, 0.6, C.metalLight, { segments: 12 });
   const gh = 0.16;
   for (let i = 0; i < n; i++) {
     mover(out, { hx: 1.25, hy: gh, hz: 1.25, period, phase: i / n, color, style: 'gondola', orbit: { px: pivot.x, py: pivot.y, pz: pivot.z, radius } });
@@ -459,6 +463,15 @@ function lantern(out: WorldData, x: number, baseY: number, z: number, h = 2.2) {
   decoCyl(out, x, baseY + h / 2, z, 0.05, h, C.metal, { cast: false });
   decoSphere(out, x, baseY + h + 0.15, z, 0.18, C.lanternGlow, { emissive: C.lanternGlow, emissiveIntensity: 1.7, cast: false });
 }
+/** A market-stall canopy: a flat awning held up by four corner posts that stand
+ *  on the island surface (`cy`). Without the posts the awning reads as a carpet
+ *  floating in mid-air above the stall. */
+function stallAwning(out: WorldData, cx: number, cy: number, cz: number, hx: number, hz: number, color: string) {
+  const h = 1.6; // canopy clearance / post height above the island
+  decoBox(out, cx, cy + h, cz, hx, 0.06, hz, color, { cast: false }); // canopy
+  for (const sx of [-1, 1] as const) for (const sz of [-1, 1] as const)
+    decoCyl(out, cx + sx * (hx - 0.2), cy + h / 2, cz + sz * (hz - 0.2), 0.05, h, C.wood, { cast: false });
+}
 function mushroom(out: WorldData, x: number, z: number, baseY: number, scale = 1, color: 'red' | 'purple' | 'blue' = 'red') {
   const stemH = 0.4 * scale;
   decoCyl(out, x, baseY + stemH / 2, z, 0.12 * scale, stemH, C.mushStem, { cast: false });
@@ -587,7 +600,12 @@ export function generateWorld(seed = 1337): WorldData {
   islet(out, 0, R0, 0.6, 1.6, 1.6, C.grass, C.dirtDark); // trailhead islet at the home edge
   const dress = (flag: string, lamp = false) => {
     const ox = Math.cos(r.angle), oz = Math.sin(r.angle);
-    out.flags.push({ x: r.x + ox * (r.hx + 0.1), y: r.y + 0.5, z: r.z + oz * (r.hz + 0.1), rotY: r.angle, color: flag });
+    // Stand the flag on a pole set on the island lip (inset from the edge).
+    // Dropping the banner just past the edge at +0.5 left it floating / clipping
+    // through the platform below ("flag sticking through the ground").
+    const fx = r.x + ox * (r.hx - 0.4), fz = r.z + oz * (r.hz - 0.4);
+    decoCyl(out, fx, r.y + 0.8, fz, 0.05, 1.6, C.woodDark, { cast: false });
+    out.flags.push({ x: fx, y: r.y + 1.45, z: fz, rotY: r.angle, color: flag });
     if (lamp) lantern(out, r.x - ox * (r.hx - 0.3), r.y, r.z - oz * (r.hz - 0.3), 1.5);
   };
   // ════ DISTRICT 1 — GARDEN RISE (committed single jumps onto small islands) ════
@@ -604,7 +622,6 @@ export function generateWorld(seed = 1337): WorldData {
 
   // ════ DISTRICT 2 — WINDMILL HEIGHTS (long, low, precise jumps + the WHEEL) ════
   r.arc({ dDeg: 44, R: R0, rise: 1.0, hx: 0.85, hz: 0.85, band: 'hard', skin: isle(PAL.wheat) }); // long flat leap
-  out.windmills.push({ x: r.x, y: r.y + 1.9, z: r.z, rotY: r.angle, scale: 0.6 });
   r.arc({ dDeg: 40, R: R0, rise: 1.4, hx: 0.85, hz: 0.85, band: 'hard', skin: isle(PAL.wheat) });
   // THE GONDOLA WHEEL — time the board, ride a gondola up, hop off at the top.
   {
@@ -617,19 +634,15 @@ export function generateWorld(seed = 1337): WorldData {
   }
   r.arc({ dDeg: 34, R: R0, rise: 0.2, hx: 1.4, hz: 1.3, band: 'medium', skin: isle(PAL.wheat) }); // hop off the wheel top
   r.checkpoint('Windmill Heights', 2); dress(C.flag3);
-  out.windmills.push({ x: r.x - Math.cos(r.angle) * 0.2, y: r.y + 2.0, z: r.z, rotY: r.angle + 1, scale: 0.5 });
 
   // ════ DISTRICT 3 — THE WATERWORKS (hard precise leaps + a fast WATER-LIFT) ════
   r.arc({ dDeg: 46, R: R0, rise: 0.8, hx: 0.8, hz: 0.8, band: 'hard', skin: isle(PAL.water) }); // near the single-jump limit
-  out.waterfalls.push({ x: r.x, y: r.y - 4, z: r.z + 0.2, w: 1.3, h: 9, rotY: 0 });
-  out.waterwheels.push({ x: r.x + 1.6, y: r.y - 0.8, z: r.z, radius: 1.5, rotY: r.angle + Math.PI / 2 });
   r.arc({ dDeg: 42, R: R0, rise: 1.2, hx: 0.8, hz: 0.8, band: 'hard', skin: isle(PAL.water) });
   // a fast rising WATER-LIFT — board it on the spiral, ride up (tight window)
   {
     const la = r.angle + (24 * Math.PI) / 180, lx = Math.cos(la) * R0, lz = Math.sin(la) * R0;
     const llow = r.y - 0.1, lhigh = r.y + 4.8;
     mover(out, { ax: lx, ay: llow, az: lz, bx: lx, by: lhigh, bz: lz, hx: 1.2, hy: 0.18, hz: 1.2, period: 4, color: C.water, style: 'lift' });
-    out.waterfalls.push({ x: lx, y: lhigh - 4, z: lz + 1.4, w: 1.2, h: 9, rotY: 0 });
     r.link(lx, llow + 0.18, lz, 1.2, 1.2, 'hard', 'jump');
     out.edges.push({ ax: lx, ay: llow + 0.18, az: lz, bx: lx, by: lhigh + 0.18, bz: lz, band: 'easy', kind: 'mover' });
     r.x = lx; r.y = lhigh + 0.18; r.z = lz; r.hx = 1.2; r.hz = 1.2; r.angle = la;
@@ -641,7 +654,7 @@ export function generateWorld(seed = 1337): WorldData {
   r.arc({ dDeg: 42, R: R0, rise: 1.2, hx: 1.3, hz: 1.3, band: 'hard', skin: isle(PAL.market) });
   // lantern-strung market island
   for (let i = 0; i < 3; i++) lantern(out, r.x + (i - 1) * 0.8, r.y, r.z - 0.6, 1.3);
-  decoBox(out, r.x, r.y + 1.6, r.z, 1.4, 0.06, 1.0, C.roofCoral, { cast: false }); // awning
+  stallAwning(out, r.x, r.y, r.z, 1.4, 1.0, C.roofCoral); // lantern-strung stall canopy
   // CONVERGING CARTS: ride cart A out, transfer to cart B as they converge, ride
   // to the far island. They meet in the middle on a cycle — mistime the transfer
   // and you're left on a cart that carries you back (or shoved off).
@@ -669,7 +682,7 @@ export function generateWorld(seed = 1337): WorldData {
     r.x = fx; r.y = fyTop; r.z = fz; r.hx = 1.8; r.hz = 1.6; r.angle = eAng;
   }
   r.checkpoint('Night Market', 4); dress(C.flag1, true);
-  decoBox(out, r.x, r.y + 1.6, r.z - 0.4, 1.5, 0.06, 1.1, C.roofTeal, { cast: false }); // awning
+  stallAwning(out, r.x, r.y, r.z - 0.4, 1.5, 1.1, C.roofTeal); // market checkpoint stall canopy
 
   // ════ DISTRICT 5 — ICE REACH (BRUTAL: tiny fast-cracking ice + a forced double) ════
   r.arc({ dDeg: 38, R: R0, rise: 1.2, hx: 1.0, hz: 1.0, band: 'hard', skin: isle(PAL.ice) });

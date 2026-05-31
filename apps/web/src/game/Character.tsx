@@ -274,43 +274,78 @@ export default function Character({ variant, state = 'idle' }: Props) {
 const HIP_Y = 0.78;        // pivot height for legs (above feet)
 const SHOULDER_Y = 1.32;   // pivot for arms
 
+// ─── shared geometry + material caches ──────────────────────────────────────
+// Avatars used to inline ~26 <geometry>/<material> elements each, so every
+// Character that mounted allocated ~26 BufferGeometries + materials and uploaded
+// them in a single frame — a visible hitch on join, and steady GC churn as
+// players come and go. These caches build each distinct shape/material ONCE and
+// share them across all avatars, so mounting a player allocates ~nothing. Meshes
+// using shared resources set `dispose={null}` so React-three-fiber never frees a
+// singleton out from under the other avatars on unmount. (The antenna bulb is
+// animated per-instance, so it keeps its own geometry + material.)
+const _geoCache = new Map<string, THREE.BufferGeometry>();
+function geo(key: string, make: () => THREE.BufferGeometry): THREE.BufferGeometry {
+  let g = _geoCache.get(key);
+  if (!g) { g = make(); _geoCache.set(key, g); }
+  return g;
+}
+
+type MatOpts = { color: string; roughness?: number; metalness?: number; emissive?: string; emissiveIntensity?: number; side?: THREE.Side };
+const _matCache = new Map<string, THREE.MeshStandardMaterial>();
+function mat(o: MatOpts): THREE.MeshStandardMaterial {
+  const key = `${o.color}|${o.roughness ?? 1}|${o.metalness ?? 0}|${o.emissive ?? '#000000'}|${o.emissiveIntensity ?? 0}|${o.side ?? 0}`;
+  let m = _matCache.get(key);
+  if (!m) {
+    m = new THREE.MeshStandardMaterial({
+      color: o.color,
+      roughness: o.roughness ?? 1,
+      metalness: o.metalness ?? 0,
+      emissive: o.emissive ?? '#000000',
+      emissiveIntensity: o.emissiveIntensity ?? 0,
+      side: o.side ?? THREE.FrontSide,
+    });
+    _matCache.set(key, m);
+  }
+  return m;
+}
+
 function Body({ c }: { c: CharacterVariant }) {
   const color = c.bodyColor;
   switch (c.body) {
     case 'capsule':
       return (
-        <mesh position={[0, 1.05, 0]} castShadow>
-          <capsuleGeometry args={[0.36, 0.7, 12, 24]} />
-          <meshStandardMaterial color={color} roughness={0.55} metalness={0.05} />
-        </mesh>
+        <mesh position={[0, 1.05, 0]} castShadow dispose={null}
+          geometry={geo('body-cap', () => new THREE.CapsuleGeometry(0.36, 0.7, 12, 24))}
+          material={mat({ color, roughness: 0.55, metalness: 0.05 })}
+        />
       );
     case 'cube':
       return (
-        <mesh position={[0, 1.05, 0]} castShadow>
-          <boxGeometry args={[0.78, 0.86, 0.66]} />
-          <meshStandardMaterial color={color} roughness={0.6} />
-        </mesh>
+        <mesh position={[0, 1.05, 0]} castShadow dispose={null}
+          geometry={geo('body-cube', () => new THREE.BoxGeometry(0.78, 0.86, 0.66))}
+          material={mat({ color, roughness: 0.6 })}
+        />
       );
     case 'sphere':
       return (
-        <mesh position={[0, 1.1, 0]} castShadow>
-          <sphereGeometry args={[0.5, 32, 32]} />
-          <meshStandardMaterial color={color} roughness={0.45} />
-        </mesh>
+        <mesh position={[0, 1.1, 0]} castShadow dispose={null}
+          geometry={geo('body-sphere', () => new THREE.SphereGeometry(0.5, 32, 32))}
+          material={mat({ color, roughness: 0.45 })}
+        />
       );
     case 'cylinder':
       return (
-        <mesh position={[0, 1.05, 0]} castShadow>
-          <cylinderGeometry args={[0.4, 0.42, 0.88, 32]} />
-          <meshStandardMaterial color={color} roughness={0.55} />
-        </mesh>
+        <mesh position={[0, 1.05, 0]} castShadow dispose={null}
+          geometry={geo('body-cyl', () => new THREE.CylinderGeometry(0.4, 0.42, 0.88, 32))}
+          material={mat({ color, roughness: 0.55 })}
+        />
       );
     case 'box-tall':
       return (
-        <mesh position={[0, 1.15, 0]} castShadow>
-          <boxGeometry args={[0.58, 1.05, 0.5]} />
-          <meshStandardMaterial color={color} roughness={0.5} />
-        </mesh>
+        <mesh position={[0, 1.15, 0]} castShadow dispose={null}
+          geometry={geo('body-boxtall', () => new THREE.BoxGeometry(0.58, 1.05, 0.5))}
+          material={mat({ color, roughness: 0.5 })}
+        />
       );
   }
 }
@@ -329,30 +364,30 @@ function Head({
     case 'sphere':
       return (
         <group position={[0, 1.85, 0]}>
-          <mesh castShadow>
-            <sphereGeometry args={[0.32, 32, 32]} />
-            <meshStandardMaterial color={c.headColor} roughness={0.5} />
-          </mesh>
+          <mesh castShadow dispose={null}
+            geometry={geo('head-sphere', () => new THREE.SphereGeometry(0.32, 32, 32))}
+            material={mat({ color: c.headColor, roughness: 0.5 })}
+          />
           <Face faceZ={0.3} eyeSpread={0.13} eyeY={0.03} mouth={c.mouth} eyeLRef={eyeLRef} eyeRRef={eyeRRef} />
         </group>
       );
     case 'cube':
       return (
         <group position={[0, 1.85, 0]}>
-          <mesh castShadow>
-            <boxGeometry args={[0.56, 0.56, 0.52]} />
-            <meshStandardMaterial color={c.headColor} roughness={0.55} />
-          </mesh>
+          <mesh castShadow dispose={null}
+            geometry={geo('head-cube', () => new THREE.BoxGeometry(0.56, 0.56, 0.52))}
+            material={mat({ color: c.headColor, roughness: 0.55 })}
+          />
           <Face faceZ={0.27} eyeSpread={0.15} eyeY={0.04} mouth={c.mouth} eyeLRef={eyeLRef} eyeRRef={eyeRRef} />
         </group>
       );
     case 'cone':
       return (
         <group position={[0, 2.0, 0]}>
-          <mesh castShadow>
-            <coneGeometry args={[0.36, 0.78, 24]} />
-            <meshStandardMaterial color={c.headColor} roughness={0.5} />
-          </mesh>
+          <mesh castShadow dispose={null}
+            geometry={geo('head-cone', () => new THREE.ConeGeometry(0.36, 0.78, 24))}
+            material={mat({ color: c.headColor, roughness: 0.5 })}
+          />
           {/* face wraps lower on the cone */}
           <Face faceZ={0.28} faceY={-0.18} eyeSpread={0.1} eyeY={0.0} mouth={c.mouth} eyeLRef={eyeLRef} eyeRRef={eyeRRef} small />
         </group>
@@ -380,25 +415,17 @@ function Face({
   small?: boolean;
 }) {
   const eyeR = small ? 0.045 : 0.06;
+  const eyeGeo = geo(`eye-${eyeR}`, () => new THREE.SphereGeometry(eyeR, 14, 14));
+  const shineGeo = geo(`eyeshine-${eyeR}`, () => new THREE.SphereGeometry(eyeR * 0.35, 8, 8));
+  const eyeMat = mat({ color: '#0f172a' });
+  const shineMat = mat({ color: '#f8fafc' });
   return (
     <group position={[0, faceY, 0]}>
-      <mesh ref={eyeLRef} position={[-eyeSpread, eyeY, faceZ]}>
-        <sphereGeometry args={[eyeR, 14, 14]} />
-        <meshStandardMaterial color="#0f172a" />
-      </mesh>
-      <mesh ref={eyeRRef} position={[eyeSpread, eyeY, faceZ]}>
-        <sphereGeometry args={[eyeR, 14, 14]} />
-        <meshStandardMaterial color="#0f172a" />
-      </mesh>
+      <mesh ref={eyeLRef} position={[-eyeSpread, eyeY, faceZ]} dispose={null} geometry={eyeGeo} material={eyeMat} />
+      <mesh ref={eyeRRef} position={[eyeSpread, eyeY, faceZ]} dispose={null} geometry={eyeGeo} material={eyeMat} />
       {/* tiny eye-shine */}
-      <mesh position={[-eyeSpread + eyeR * 0.4, eyeY + eyeR * 0.4, faceZ + eyeR * 0.7]}>
-        <sphereGeometry args={[eyeR * 0.35, 8, 8]} />
-        <meshStandardMaterial color="#f8fafc" />
-      </mesh>
-      <mesh position={[eyeSpread + eyeR * 0.4, eyeY + eyeR * 0.4, faceZ + eyeR * 0.7]}>
-        <sphereGeometry args={[eyeR * 0.35, 8, 8]} />
-        <meshStandardMaterial color="#f8fafc" />
-      </mesh>
+      <mesh position={[-eyeSpread + eyeR * 0.4, eyeY + eyeR * 0.4, faceZ + eyeR * 0.7]} dispose={null} geometry={shineGeo} material={shineMat} />
+      <mesh position={[eyeSpread + eyeR * 0.4, eyeY + eyeR * 0.4, faceZ + eyeR * 0.7]} dispose={null} geometry={shineGeo} material={shineMat} />
       <Mouth shape={mouth} z={faceZ} y={eyeY - (small ? 0.08 : 0.11)} />
     </group>
   );
@@ -413,37 +440,37 @@ function Mouth({
   z: number;
   y: number;
 }) {
-  const matColor = '#0f172a';
+  const m = mat({ color: '#0f172a' });
   switch (shape) {
     case 'smile':
       // half-torus arc, opening UP → smile
       return (
-        <mesh position={[0, y, z]} rotation={[0, 0, Math.PI]}>
-          <torusGeometry args={[0.075, 0.012, 6, 12, Math.PI]} />
-          <meshStandardMaterial color={matColor} />
-        </mesh>
+        <mesh position={[0, y, z]} rotation={[0, 0, Math.PI]} dispose={null}
+          geometry={geo('mouth-smile', () => new THREE.TorusGeometry(0.075, 0.012, 6, 12, Math.PI))}
+          material={m}
+        />
       );
     case 'grin':
       return (
-        <mesh position={[0, y, z]} rotation={[0, 0, Math.PI]}>
-          <torusGeometry args={[0.09, 0.014, 6, 14, Math.PI]} />
-          <meshStandardMaterial color={matColor} />
-        </mesh>
+        <mesh position={[0, y, z]} rotation={[0, 0, Math.PI]} dispose={null}
+          geometry={geo('mouth-grin', () => new THREE.TorusGeometry(0.09, 0.014, 6, 14, Math.PI))}
+          material={m}
+        />
       );
     case 'smirk':
       // half arc but tilted
       return (
-        <mesh position={[0.02, y, z]} rotation={[0, 0, Math.PI + 0.35]}>
-          <torusGeometry args={[0.07, 0.011, 6, 10, Math.PI * 0.7]} />
-          <meshStandardMaterial color={matColor} />
-        </mesh>
+        <mesh position={[0.02, y, z]} rotation={[0, 0, Math.PI + 0.35]} dispose={null}
+          geometry={geo('mouth-smirk', () => new THREE.TorusGeometry(0.07, 0.011, 6, 10, Math.PI * 0.7))}
+          material={m}
+        />
       );
     case 'oh':
       return (
-        <mesh position={[0, y + 0.005, z]}>
-          <torusGeometry args={[0.03, 0.012, 6, 14]} />
-          <meshStandardMaterial color={matColor} />
-        </mesh>
+        <mesh position={[0, y + 0.005, z]} dispose={null}
+          geometry={geo('mouth-oh', () => new THREE.TorusGeometry(0.03, 0.012, 6, 14))}
+          material={m}
+        />
       );
     case 'none':
     default:
@@ -572,34 +599,36 @@ function Limb({
   radius: number;
   terminalKind: 'hand' | 'foot';
 }) {
+  const sleeveMat = mat({ color: sleeveColor, roughness: 0.55 });
+  const skinMat = mat({ color: skinColor, roughness: 0.55 });
   return (
     <group ref={hipRef} position={[x, y, 0]}>
       {/* upper segment, centered below pivot */}
-      <mesh position={[0, -upperLen / 2, 0]} castShadow>
-        <cylinderGeometry args={[radius * 0.9, radius, upperLen, 16]} />
-        <meshStandardMaterial color={sleeveColor} roughness={0.55} />
-      </mesh>
+      <mesh position={[0, -upperLen / 2, 0]} castShadow dispose={null}
+        geometry={geo(`limb-up-${radius}-${upperLen}`, () => new THREE.CylinderGeometry(radius * 0.9, radius, upperLen, 16))}
+        material={sleeveMat}
+      />
       {/* knee joint sphere */}
-      <mesh position={[0, -upperLen, 0]} castShadow>
-        <sphereGeometry args={[radius * 0.95, 12, 12]} />
-        <meshStandardMaterial color={sleeveColor} roughness={0.55} />
-      </mesh>
+      <mesh position={[0, -upperLen, 0]} castShadow dispose={null}
+        geometry={geo(`limb-knee-${radius}`, () => new THREE.SphereGeometry(radius * 0.95, 12, 12))}
+        material={sleeveMat}
+      />
       <group ref={kneeRef} position={[0, -upperLen, 0]}>
         {/* lower segment */}
-        <mesh position={[0, -lowerLen / 2, 0]} castShadow>
-          <cylinderGeometry args={[radius * 0.85, radius * 0.9, lowerLen, 16]} />
-          <meshStandardMaterial color={skinColor} roughness={0.55} />
-        </mesh>
+        <mesh position={[0, -lowerLen / 2, 0]} castShadow dispose={null}
+          geometry={geo(`limb-lo-${radius}-${lowerLen}`, () => new THREE.CylinderGeometry(radius * 0.85, radius * 0.9, lowerLen, 16))}
+          material={skinMat}
+        />
         {terminalKind === 'foot' ? (
-          <mesh position={[0, -lowerLen - 0.04, 0.06]} castShadow>
-            <boxGeometry args={[radius * 1.9, 0.09, radius * 2.6]} />
-            <meshStandardMaterial color="#1e293b" roughness={0.7} />
-          </mesh>
+          <mesh position={[0, -lowerLen - 0.04, 0.06]} castShadow dispose={null}
+            geometry={geo(`foot-${radius}`, () => new THREE.BoxGeometry(radius * 1.9, 0.09, radius * 2.6))}
+            material={mat({ color: '#1e293b', roughness: 0.7 })}
+          />
         ) : (
-          <mesh position={[0, -lowerLen - radius * 0.6, 0]} castShadow>
-            <sphereGeometry args={[radius * 1.05, 14, 14]} />
-            <meshStandardMaterial color={skinColor} roughness={0.55} />
-          </mesh>
+          <mesh position={[0, -lowerLen - radius * 0.6, 0]} castShadow dispose={null}
+            geometry={geo(`hand-${radius}`, () => new THREE.SphereGeometry(radius * 1.05, 14, 14))}
+            material={skinMat}
+          />
         )}
       </group>
     </group>
@@ -623,27 +652,29 @@ function Accessory({
     case 'top-hat':
       return (
         <group position={[0, headTopY - 0.04, 0]}>
-          <mesh castShadow>
-            <cylinderGeometry args={[0.26, 0.26, 0.36, 24]} />
-            <meshStandardMaterial color={c.accessoryColor} roughness={0.4} />
-          </mesh>
-          <mesh position={[0, -0.2, 0]} castShadow>
-            <cylinderGeometry args={[0.4, 0.4, 0.04, 24]} />
-            <meshStandardMaterial color={c.accessoryColor} roughness={0.4} />
-          </mesh>
-          <mesh position={[0, -0.16, 0.001]}>
-            <ringGeometry args={[0.26, 0.32, 24]} />
-            <meshStandardMaterial color="#facc15" emissive="#facc15" emissiveIntensity={0.2} side={THREE.DoubleSide} />
-          </mesh>
+          <mesh castShadow dispose={null}
+            geometry={geo('hat-crown', () => new THREE.CylinderGeometry(0.26, 0.26, 0.36, 24))}
+            material={mat({ color: c.accessoryColor, roughness: 0.4 })}
+          />
+          <mesh position={[0, -0.2, 0]} castShadow dispose={null}
+            geometry={geo('hat-brim', () => new THREE.CylinderGeometry(0.4, 0.4, 0.04, 24))}
+            material={mat({ color: c.accessoryColor, roughness: 0.4 })}
+          />
+          <mesh position={[0, -0.16, 0.001]} dispose={null}
+            geometry={geo('hat-ring', () => new THREE.RingGeometry(0.26, 0.32, 24))}
+            material={mat({ color: '#facc15', emissive: '#facc15', emissiveIntensity: 0.2, side: THREE.DoubleSide })}
+          />
         </group>
       );
     case 'antenna':
       return (
         <group position={[0, headTopY - 0.05, 0]}>
-          <mesh position={[0, 0.22, 0]} castShadow>
-            <cylinderGeometry args={[0.022, 0.022, 0.4, 10]} />
-            <meshStandardMaterial color="#94a3b8" />
-          </mesh>
+          <mesh position={[0, 0.22, 0]} castShadow dispose={null}
+            geometry={geo('ant-stalk', () => new THREE.CylinderGeometry(0.022, 0.022, 0.4, 10))}
+            material={mat({ color: '#94a3b8' })}
+          />
+          {/* bulb material is animated (Sparky pulse), so this mesh keeps its own
+              geometry + material and disposes normally on unmount */}
           <mesh position={[0, 0.48, 0]} castShadow>
             <sphereGeometry args={[0.085, 16, 16]} />
             <meshStandardMaterial
@@ -655,37 +686,36 @@ function Accessory({
           </mesh>
         </group>
       );
-    case 'horns':
+    case 'horns': {
+      const hornGeo = geo('horn', () => new THREE.ConeGeometry(0.075, 0.32, 14));
+      const hornMat = mat({ color: c.accessoryColor, roughness: 0.5 });
       return (
         <group position={[0, headTopY - 0.08, 0]}>
-          <mesh position={[-0.16, 0.08, 0]} rotation={[0, 0, -0.45]} castShadow>
-            <coneGeometry args={[0.075, 0.32, 14]} />
-            <meshStandardMaterial color={c.accessoryColor} roughness={0.5} />
-          </mesh>
-          <mesh position={[0.16, 0.08, 0]} rotation={[0, 0, 0.45]} castShadow>
-            <coneGeometry args={[0.075, 0.32, 14]} />
-            <meshStandardMaterial color={c.accessoryColor} roughness={0.5} />
-          </mesh>
+          <mesh position={[-0.16, 0.08, 0]} rotation={[0, 0, -0.45]} castShadow dispose={null} geometry={hornGeo} material={hornMat} />
+          <mesh position={[0.16, 0.08, 0]} rotation={[0, 0, 0.45]} castShadow dispose={null} geometry={hornGeo} material={hornMat} />
         </group>
       );
-    case 'cap':
+    }
+    case 'cap': {
+      const capMat = mat({ color: c.accessoryColor, roughness: 0.5 });
       return (
         <group position={[0, headTopY - 0.1, 0]}>
-          <mesh castShadow>
-            <sphereGeometry args={[0.34, 24, 24, 0, Math.PI * 2, 0, Math.PI / 2.4]} />
-            <meshStandardMaterial color={c.accessoryColor} roughness={0.5} />
-          </mesh>
-          <mesh position={[0, -0.02, 0.28]} rotation={[Math.PI / 2, 0, 0]} castShadow>
-            <cylinderGeometry args={[0.16, 0.22, 0.03, 24, 1, false, 0, Math.PI]} />
-            <meshStandardMaterial color={c.accessoryColor} roughness={0.5} />
-          </mesh>
+          <mesh castShadow dispose={null}
+            geometry={geo('cap-dome', () => new THREE.SphereGeometry(0.34, 24, 24, 0, Math.PI * 2, 0, Math.PI / 2.4))}
+            material={capMat}
+          />
+          <mesh position={[0, -0.02, 0.28]} rotation={[Math.PI / 2, 0, 0]} castShadow dispose={null}
+            geometry={geo('cap-brim', () => new THREE.CylinderGeometry(0.16, 0.22, 0.03, 24, 1, false, 0, Math.PI))}
+            material={capMat}
+          />
           {/* button on top */}
-          <mesh position={[0, 0.18, 0]} castShadow>
-            <sphereGeometry args={[0.04, 10, 10]} />
-            <meshStandardMaterial color="#f8fafc" />
-          </mesh>
+          <mesh position={[0, 0.18, 0]} castShadow dispose={null}
+            geometry={geo('cap-button', () => new THREE.SphereGeometry(0.04, 10, 10))}
+            material={mat({ color: '#f8fafc' })}
+          />
         </group>
       );
+    }
     case 'none':
       return null;
   }

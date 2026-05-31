@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { OFFICIAL_LOBBY_ID, type LobbyInfo, type LobbyResult, type Role, type TowerHighScore } from '@pwa-demo/shared';
-import { getSocket } from '../../lib/socket';
+import { isDedicatedLobbyId, type AuthStatus, type LobbyInfo, type LobbyResult, type Role, type TowerHighScore } from '@pwa-demo/shared';
+import { getSocket, hasAdminToken } from '../../lib/socket';
 import CharacterPicker from './CharacterPicker';
+import ServerAdminMenu, { ShieldIcon } from './ServerAdminMenu';
 
 const NAME_KEY = 'pwademo:displayName';
 const CHAR_KEY = 'pwademo:character';
@@ -20,6 +21,7 @@ export default function LobbyList({
   onEntered: (lobby: LobbyResult & { ok: true }, role: Role, character: number) => void;
 }) {
   const [lobbies, setLobbies] = useState<LobbyInfo[]>([]);
+  const [listReceived, setListReceived] = useState(false);
   const [leaderboard, setLeaderboard] = useState<TowerHighScore[]>([]);
   const [name, setName] = useState(loadName);
   const [character, setCharacter] = useState<number>(loadChar);
@@ -28,6 +30,14 @@ export default function LobbyList({
   const [hostRole, setHostRole] = useState<Role>('player');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Optimistic from a persisted token (auto-elevated on connect); corrected by
+  // auth:status. Drives only the icon tint — the menu re-verifies via the
+  // server before showing admin controls.
+  const [isAdmin, setIsAdmin] = useState(hasAdminToken);
+  const [adminOpen, setAdminOpen] = useState(false);
+
+  // Dedicated servers may be turned off by an admin — Quick Play goes offline.
+  const hasDedicated = lobbies.some((l) => isDedicatedLobbyId(l.id));
 
   useEffect(() => {
     localStorage.setItem(NAME_KEY, name);
@@ -40,13 +50,22 @@ export default function LobbyList({
   useEffect(() => {
     const s = getSocket();
     s.emit('lobby:browser:join');
-    const onList = (list: LobbyInfo[]) => setLobbies(list);
+    const onList = (list: LobbyInfo[]) => { setLobbies(list); setListReceived(true); };
     const onLeaderboard = (top: TowerHighScore[]) => setLeaderboard(top);
+    const onAuth = (status: AuthStatus) => setIsAdmin(status.isAdmin);
+    // Socket.IO hands us a fresh socket on reconnect, which is NOT in the
+    // server's browser room — re-join so lobby:list / leaderboard (and the
+    // "dedicated servers offline" gate derived from them) stay live.
+    const onConnect = () => s.emit('lobby:browser:join');
     s.on('lobby:list', onList);
     s.on('tower:leaderboard', onLeaderboard);
+    s.on('auth:status', onAuth);
+    s.on('connect', onConnect);
     return () => {
       s.off('lobby:list', onList);
       s.off('tower:leaderboard', onLeaderboard);
+      s.off('auth:status', onAuth);
+      s.off('connect', onConnect);
       s.emit('lobby:browser:leave');
     };
   }, []);
@@ -108,7 +127,24 @@ export default function LobbyList({
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
-      <h1 className="text-3xl font-bold mb-2">Tower Climb</h1>
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <h1 className="text-3xl font-bold">Tower Climb</h1>
+        {/* Server admin — token elevation + dedicated-server fleet controls.
+            Subtle when anonymous, amber once elevated. */}
+        <button
+          type="button"
+          onClick={() => setAdminOpen(true)}
+          title={isAdmin ? 'Server admin' : 'Admin sign-in'}
+          aria-label="Server admin"
+          className={`shrink-0 mt-1 p-1.5 rounded-md border transition ${
+            isAdmin
+              ? 'text-amber-300 border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20'
+              : 'text-slate-500 border-slate-800 hover:text-slate-300 hover:border-slate-700'
+          }`}
+        >
+          <ShieldIcon className="w-4 h-4" />
+        </button>
+      </div>
       <p className="text-slate-400 mb-2">
         Get as high as you can. Jump up the platforms. Pick a lobby to join, or host your own.
       </p>
@@ -137,27 +173,48 @@ export default function LobbyList({
         <CharacterPicker value={character} onChange={setCharacter} />
       </section>
 
-      {/* Quick Play — drops the user straight into the always-on dedicated
+      {/* Quick Play — drops the user straight into the least-full dedicated
           server. Highest-affordance action on the page so first-time visitors
-          can be playing in one click. */}
-      <section className="bg-gradient-to-r from-amber-500/10 to-amber-500/5 border border-amber-500/40 rounded-lg p-5 mb-6">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div>
-            <h2 className="text-sm font-medium text-amber-300 uppercase tracking-wider">★ official server</h2>
-            <p className="text-slate-300 text-sm mt-1">
-              Persistent always-on world. Drop in, climb, get on the leaderboard.
-            </p>
+          can be playing in one click. Goes offline when an admin turns the
+          dedicated servers off. */}
+      {listReceived && !hasDedicated ? (
+        <section className="bg-slate-900 border border-slate-800 rounded-lg p-5 mb-6">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wider">official server</h2>
+              <p className="text-slate-500 text-sm mt-1">
+                Dedicated servers are currently offline. Host a private lobby below to play.
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled
+              className="px-5 py-2.5 rounded-md bg-slate-800 text-slate-500 font-semibold text-sm cursor-not-allowed"
+            >
+              Offline
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={handleQuickPlay}
-            disabled={busy}
-            className="px-5 py-2.5 rounded-md bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-sm disabled:opacity-50 shadow-md"
-          >
-            {busy ? 'joining…' : 'Quick Play →'}
-          </button>
-        </div>
-      </section>
+        </section>
+      ) : (
+        <section className="bg-gradient-to-r from-amber-500/10 to-amber-500/5 border border-amber-500/40 rounded-lg p-5 mb-6">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <h2 className="text-sm font-medium text-amber-300 uppercase tracking-wider">★ official server</h2>
+              <p className="text-slate-300 text-sm mt-1">
+                Persistent always-on world. Drop in, climb, get on the leaderboard.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleQuickPlay}
+              disabled={busy}
+              className="px-5 py-2.5 rounded-md bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-sm disabled:opacity-50 shadow-md"
+            >
+              {busy ? 'joining…' : 'Quick Play →'}
+            </button>
+          </div>
+        </section>
+      )}
 
       <section className="bg-slate-900 border border-slate-800 rounded-lg p-5 mb-6">
         <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
@@ -211,7 +268,7 @@ export default function LobbyList({
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {lobbies.map((l) => {
-              const official = l.id === OFFICIAL_LOBBY_ID;
+              const official = isDedicatedLobbyId(l.id);
               return (
                 <button
                   key={l.id}
@@ -268,6 +325,8 @@ export default function LobbyList({
           {error}
         </div>
       )}
+
+      <ServerAdminMenu open={adminOpen} onClose={() => setAdminOpen(false)} />
     </div>
   );
 }

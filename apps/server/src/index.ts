@@ -21,20 +21,35 @@ const app = express();
 // host redirect below).
 app.set('trust proxy', true);
 
-// Canonical-host redirect: any request to a non-canonical hostname (today:
+// Canonical-host redirect: any request to a non-canonical hostname (e.g.
 // www.yesweb.app) gets a 301 to the canonical host with path + query
 // preserved. CANONICAL_HOST is read from env so prod, staging, and any
 // future domain swap can configure it without code changes. If unset, the
 // middleware is a no-op — local dev hits localhost which is exempt anyway.
 const canonicalHost = process.env.CANONICAL_HOST?.toLowerCase();
+// Alternate domains that must be served *directly* (kept in the address bar,
+// never redirected to the canonical host). Comma-separated. Used for legacy /
+// fallback domains pointed at the same Cloud Run service — e.g. pwa.dipduo.com,
+// the original domain, kept alive because some networks' DNS blocklists flag
+// the newer yesweb.app. Redirecting those to yesweb.app would defeat the
+// fallback, so each listed host is exempt from the 301. The canonical host is
+// always served directly; www.* and everything else still fall through to it.
+const allowedHosts = new Set(
+  (process.env.ALLOWED_HOSTS ?? '')
+    .split(',')
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean),
+);
+if (canonicalHost) allowedHosts.add(canonicalHost);
+
 if (canonicalHost) {
   app.use((req, res, next) => {
     const host = (req.headers.host ?? '').toLowerCase();
     // Strip an optional :port (Cloud Run won't send one but other proxies might).
     const hostOnly = host.split(':')[0];
-    // Localhost / private IPs are dev/LAN traffic — never redirect those.
+    // Allowlisted hosts + localhost / private IPs are served as-is.
     if (
-      hostOnly === canonicalHost ||
+      allowedHosts.has(hostOnly) ||
       hostOnly === 'localhost' ||
       hostOnly.endsWith('.localhost') ||
       /^\d+\.\d+\.\d+\.\d+$/.test(hostOnly) ||

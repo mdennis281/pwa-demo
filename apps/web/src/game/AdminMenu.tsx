@@ -66,9 +66,11 @@ export default function AdminMenu({
       <div className="relative bg-slate-950 border border-slate-700 rounded-xl shadow-2xl w-full max-w-md mx-4 p-5 space-y-5">
         {/* header */}
         <div className="flex items-center justify-between">
-          <div>
+          <div className="min-w-0">
             <h2 className="text-white font-semibold text-base">Admin Panel</h2>
-            <p className="text-slate-500 text-xs mt-0.5">Ctrl+A to toggle</p>
+            <p className="text-slate-500 text-xs mt-0.5 truncate">
+              this server · <span className="text-slate-400">{lobby.name}</span> · Ctrl+A
+            </p>
           </div>
           <button
             onClick={onClose}
@@ -109,11 +111,11 @@ export default function AdminMenu({
             />
           </label>
           <label className="block">
-            <span className="text-xs text-slate-400">player cap (1–16)</span>
+            <span className="text-xs text-slate-400">player cap (1–1000)</span>
             <input
               type="number"
               min={1}
-              max={16}
+              max={1000}
               value={playerCap}
               onChange={(e) => setPlayerCap(Number(e.target.value))}
               className="mt-1 block w-28 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-slate-500"

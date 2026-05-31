@@ -8,13 +8,15 @@ Three groups of types:
 
 1. **Socket.io event contracts** — `ClientToServerEvents` and `ServerToClientEvents`. The web client's `Socket<…>` is parameterized with these, and the server's `Server<…>` is parameterized with their mirror image. Adding an event is a type-level enforcement on both sides.
 
-2. **Game domain models** — `LobbyState`, `LobbyInfo`, `LobbyPlayer`, `PlayerSnapshot`, `GameSnapshot`, `LocalInput`, `Role`, `LobbyCreate`, `LobbyJoin`, `LobbyResult`, `AdminAction`, `AdminResult`.
+2. **Game domain models** — `LobbyState`, `LobbyInfo`, `LobbyPlayer`, `PlayerSnapshot`, `GameSnapshot`, `LocalInput`, `Role`, `LobbyCreate`, `LobbyJoin`, `LobbyResult`, `AdminAction`, `AdminResult`, `ServerConfig`, `ServerConfigResult`.
 
 3. **Misc shared models** — `ClientInfo`, `AuthStatus`, `ServerDebugStats`, `TowerHighScore`.
 
-Plus two constants used across both processes:
-- `OFFICIAL_LOBBY_ID = 'tower-official'` — the persistent global lobby
-- `OFFICIAL_HOST_ID = 'SYSTEM'` — sentinel host id; no real socket can match it, so no human can host the Official Server
+Plus runtime **values** (constants + helpers). The web client imports these directly; the server **re-declares each locally** (it can only `import type` — see below):
+- `OFFICIAL_LOBBY_ID = 'tower-official'` — base id of the dedicated-server family
+- `OFFICIAL_HOST_ID = 'SYSTEM'` — sentinel host id; no real socket can match it, so no human can host a dedicated server
+- `isDedicatedLobbyId(id)` — true for `tower-official` and `tower-official-N` (the whole dedicated/official family)
+- `DEFAULT_SERVER_CONFIG` — `{ dedicatedEnabled: true, dedicatedCount: 1, dedicatedPlayerCap: 25 }`, the client's pre-load default
 
 ## Consumption model
 
@@ -54,6 +56,8 @@ This is captured as a memory note in the project so future-you doesn't forget.
 | `admin:action` | `AdminAction` | `AdminResult` |
 | `admin:elevate` | `string` (token) | `AdminResult` |
 | `admin:logout` | — | `AdminResult` |
+| `admin:get-config` | — | `ServerConfigResult` |
+| `admin:set-config` | `Partial<ServerConfig>` | `ServerConfigResult` |
 
 ### Server → client
 

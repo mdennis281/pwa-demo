@@ -3,6 +3,8 @@ import { Link, Outlet, useLocation } from 'react-router';
 import { onInstallAvailability, promptInstall, getDisplayMode } from '../lib/install';
 import ConnectionBadge from './ConnectionBadge';
 import DemoSidebar from './DemoSidebar';
+import PwaUpdater from './PwaUpdater';
+import VersionBadge from './VersionBadge';
 import ModalHost from '../demos/_ModalHost';
 
 export default function Layout() {
@@ -93,6 +95,7 @@ export default function Layout() {
 
         <div className="flex flex-col gap-2 pt-2 border-t border-slate-800">
           <ConnectionBadge />
+          <VersionBadge />
           {installable && (
             <button
               onClick={() => promptInstall()}
@@ -109,6 +112,7 @@ export default function Layout() {
       </main>
 
       <ModalHost />
+      <PwaUpdater />
     </div>
   );
 }

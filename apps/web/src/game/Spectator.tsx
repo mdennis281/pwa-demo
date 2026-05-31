@@ -5,7 +5,7 @@ import { input } from './controls/input';
 
 const SPECT_SPEED = 18;
 
-export default function Spectator() {
+export default function Spectator({ paused = false }: { paused?: boolean }) {
   const { camera } = useThree();
   const pos = useRef(new THREE.Vector3(15, 12, 15));
 
@@ -15,6 +15,7 @@ export default function Spectator() {
   }, [camera]);
 
   useFrame((_, dt) => {
+    if (paused) return; // frozen free-cam while the game is paused
     const yaw = input.yaw;
     const pitch = input.pitch;
     const cdt = Math.min(dt, 0.05);

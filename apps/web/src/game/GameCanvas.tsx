@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Profiler, type ProfilerOnRenderCallback, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import type * as THREE from 'three';
 import Player from './Player';
@@ -12,6 +12,7 @@ import CheatMenu, { DEFAULT_CHEATS, type Cheats } from './CheatMenu';
 import AdminMenu from './AdminMenu';
 import DebugPanel from './DebugPanel';
 import HUD from './HUD';
+import { RenderStatsCollector, RenderPerfOverlay, reportCommit } from './RenderPerf';
 import TouchControls from './controls/TouchControls';
 import { useKeyboard } from './controls/useKeyboard';
 import { useMouseLook } from './controls/useMouseLook';
@@ -47,18 +48,37 @@ function ShaderPrecompiler() {
 export default function GameCanvas({
   lobby,
   selfId,
+  selfClientId,
   variant,
   role,
   onLeave,
 }: {
   lobby: LobbyState;
+  /** Current socket id — used for transport-level addressing (host check,
+   *  admin kick). Changes on reconnect; don't use it to identify "me". */
   selfId: string;
+  /** Stable per-tab identity — used to recognize our own avatar regardless of
+   *  the current socket id, so a pre-reconnect ghost isn't drawn as a second
+   *  player and our deterministic spawn point stays put across reconnects. */
+  selfClientId: string;
   variant: number;
   role: Role;
   onLeave: () => void;
 }) {
   const world = useMemo(() => generateWorld(1337), []);
-  const spawn = useMemo(() => spawnFor(selfId), [selfId]);
+  const spawn = useMemo(() => spawnFor(selfClientId), [selfClientId]);
+  // Render-quality switches for diagnosing the GPU-path freezes. A/B without a
+  // rebuild: add `?noshadows` to drop the per-frame shadow pass entirely, or
+  // `?shadowres=1024` to shrink the shadow map. The perf overlay's `shadows`
+  // field self-labels which mode a capture was taken in.
+  const renderOpts = useMemo(() => {
+    const q = new URLSearchParams(window.location.search);
+    const shadowRes = Number(q.get('shadowres'));
+    return {
+      shadowsOn: !q.has('noshadows'),
+      shadowRes: Number.isFinite(shadowRes) && shadowRes > 0 ? shadowRes : 2048,
+    };
+  }, []);
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
   const [canvasEl, setCanvasEl] = useState<HTMLCanvasElement | null>(null);
   const [isTouch, setIsTouch] = useState(false);
@@ -67,6 +87,7 @@ export default function GameCanvas({
   const [cheatsOpen, setCheatsOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
+  const [perfOpen, setPerfOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [myPing, setMyPing] = useState<number | null>(null);
   const [snapshotCount, setSnapshotCount] = useState(0);
@@ -134,7 +155,9 @@ export default function GameCanvas({
   useEffect(() => () => { if (cpTimerRef.current) window.clearTimeout(cpTimerRef.current); }, []);
 
   useKeyboard(true);
-  const { locked } = useMouseLook(canvasEl, !isTouch);
+  // Pause drops pointer lock and refuses to re-acquire it (third arg = allow
+  // lock) — so a paused game can't be steered with the mouse.
+  const { locked } = useMouseLook(canvasEl, !isTouch, !paused);
 
   useEffect(() => {
     setIsTouch(window.matchMedia('(pointer: coarse)').matches);
@@ -180,18 +203,29 @@ export default function GameCanvas({
     leashR: cheats.fly ? Infinity : 95,
   };
 
-  const others = snapshot?.players.filter((p) => p.id !== selfId && p.role === 'player') ?? [];
-  const mySnap = snapshot?.players.find((p) => p.id === selfId);
+  // Identify ourselves by the stable clientId, NOT the socket id: after a
+  // reconnect our pre-reconnect record can still be in the snapshot under its
+  // old (now-dead) socket id. Filtering on selfId would let that ghost through
+  // as a "remote" player and draw a second copy of us.
+  const others = snapshot?.players.filter((p) => p.clientId !== selfClientId && p.role === 'player') ?? [];
+  const mySnap = snapshot?.players.find((p) => p.clientId === selfClientId);
   const myMaxHeight = Math.max(mySnap?.maxHeight ?? 0, myStateRef.current.maxY);
 
   // Map socketId → ping from latest snapshot (populated once server starts tracking pings)
   const snapPings: Record<string, number | null> = {};
   for (const p of snapshot?.players ?? []) snapPings[p.id] = p.ping ?? null;
 
+  // Feed React commit durations to the perf overlay so a freeze can be blamed
+  // on (or cleared of) the 20Hz re-render. Two trees: DOM (HUD/menus) and the
+  // 3D scene (which re-reconciles every snapshot as player props change).
+  const onDomRender: ProfilerOnRenderCallback = (_id, _phase, actual) => reportCommit('dom', actual);
+  const onSceneRender: ProfilerOnRenderCallback = (_id, _phase, actual) => reportCommit('scene', actual);
+
   return (
+    <Profiler id="dom" onRender={onDomRender}>
     <div className="fixed inset-0 bg-slate-950 z-40">
       <Canvas
-        shadows
+        shadows={renderOpts.shadowsOn}
         // Cap pixel ratio: retina screens otherwise render at 2-3x, which
         // Firefox's compositor handles much less efficiently than Chrome.
         // 1.5x retains visible sharpness with a huge fill-rate saving.
@@ -210,6 +244,7 @@ export default function GameCanvas({
         onCreated={({ gl }) => setCanvasEl(gl.domElement)}
       >
         <Suspense fallback={null}>
+          <Profiler id="scene" onRender={onSceneRender}>
           <ShaderPrecompiler />
           {/* Custom shader skydome — guaranteed visible gradient + soft sun */}
           <SkyDome
@@ -228,9 +263,9 @@ export default function GameCanvas({
             position={[50, 60, 30]}
             intensity={1.5}
             color="#ffe5b0"
-            castShadow
-            shadow-mapSize-width={2048}
-            shadow-mapSize-height={2048}
+            castShadow={renderOpts.shadowsOn}
+            shadow-mapSize-width={renderOpts.shadowRes}
+            shadow-mapSize-height={renderOpts.shadowRes}
             shadow-camera-left={-60}
             shadow-camera-right={60}
             shadow-camera-top={60}
@@ -240,6 +275,7 @@ export default function GameCanvas({
             shadow-bias={-0.0002}
           />
           <World data={world} />
+          {perfOpen && <RenderStatsCollector />}
           {role === 'player' ? (
             <Player
               variant={variant}
@@ -250,6 +286,7 @@ export default function GameCanvas({
               spawn={spawn}
               cheats={cheats}
               fly={flyProp}
+              paused={paused}
               goal={world.goal}
               checkpoints={world.checkpoints}
               onInput={sendInput}
@@ -258,7 +295,7 @@ export default function GameCanvas({
               onCheckpoint={handleCheckpoint}
             />
           ) : (
-            <Spectator />
+            <Spectator paused={paused} />
           )}
           {others.map((p) => (
             <RemotePlayer
@@ -274,6 +311,7 @@ export default function GameCanvas({
               serverTime={snapshot?.t ?? 0}
             />
           ))}
+          </Profiler>
         </Suspense>
       </Canvas>
 
@@ -294,7 +332,7 @@ export default function GameCanvas({
       />
 
       <TouchControls
-        active={isTouch}
+        active={isTouch && !paused}
         flightUnlocked={flightUnlocked}
         flying={flying}
         onToggleFly={() => setFlightOn((v) => !v)}
@@ -318,20 +356,22 @@ export default function GameCanvas({
       <DebugPanel
         open={debugOpen}
         onClose={() => setDebugOpen(false)}
+        onOpenPerf={() => { setDebugOpen(false); setPerfOpen(true); document.exitPointerLock?.(); }}
         players={snapshot?.players ?? []}
         selfId={selfId}
         myPing={myPing}
         snapshotCount={snapshotCount}
-        isAdmin={isAdmin}
       />
+
+      <RenderPerfOverlay open={perfOpen} onClose={() => setPerfOpen(false)} />
 
       {paused && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30">
           <div className="bg-slate-950/80 backdrop-blur border border-amber-500/40 rounded-xl px-6 py-4 text-center">
             <div className="text-amber-300 font-semibold text-lg tracking-wide">Game paused</div>
-            {isHost && (
-              <div className="text-slate-400 text-xs mt-1">Press Ctrl+A to resume</div>
-            )}
+            <div className="text-slate-400 text-xs mt-1">
+              {canAdmin ? 'Press Ctrl+A to resume' : 'Waiting for the host to resume'}
+            </div>
           </div>
         </div>
       )}
@@ -387,7 +427,7 @@ export default function GameCanvas({
         </button>
       </div>
 
-      {!locked && !isTouch && (
+      {!locked && !isTouch && !paused && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30">
           <div className="bg-slate-950/80 backdrop-blur border border-slate-700 rounded-lg px-4 py-3 text-center text-slate-300 text-sm max-w-sm">
             {role === 'player'
@@ -397,5 +437,6 @@ export default function GameCanvas({
         </div>
       )}
     </div>
+    </Profiler>
   );
 }

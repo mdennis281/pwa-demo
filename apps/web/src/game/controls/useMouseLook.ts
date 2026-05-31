@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { input } from './input';
 
 const SENS = 0.0025;
@@ -13,15 +13,30 @@ const ZOOM_MIN = 2.5;
 const ZOOM_MAX = 14;
 const ZOOM_STEP = 0.0035; // per pixel of wheel delta
 
-export function useMouseLook(canvasEl: HTMLCanvasElement | null, active: boolean): {
+/**
+ * Pointer-lock mouse-look. `active` gates the whole behaviour (desktop only).
+ * `allowLock` (default true) gates *acquiring* the lock: when false — e.g. the
+ * game is paused — a click won't capture the mouse, and any existing lock is
+ * released. Together that makes "paused ⇒ mouse capture lost, no way to get it
+ * back" hold until the game resumes.
+ */
+export function useMouseLook(
+  canvasEl: HTMLCanvasElement | null,
+  active: boolean,
+  allowLock = true,
+): {
   locked: boolean;
 } {
   const [locked, setLocked] = useState(false);
+  // Read inside the click handler without rebinding listeners every toggle.
+  const allowLockRef = useRef(allowLock);
+  allowLockRef.current = allowLock;
 
   useEffect(() => {
     if (!active || !canvasEl) return;
 
     const onClick = () => {
+      if (!allowLockRef.current) return; // paused — refuse to (re)capture
       if (document.pointerLockElement !== canvasEl) {
         canvasEl.requestPointerLock?.();
       }
@@ -62,6 +77,14 @@ export function useMouseLook(canvasEl: HTMLCanvasElement | null, active: boolean
       document.removeEventListener('pointerlockchange', onChange);
     };
   }, [canvasEl, active]);
+
+  // The instant locking is disallowed (pause), drop any current lock. The
+  // pointerlockchange listener above flips `locked` to false in response.
+  useEffect(() => {
+    if (!allowLock && document.pointerLockElement) {
+      document.exitPointerLock?.();
+    }
+  }, [allowLock]);
 
   return { locked };
 }

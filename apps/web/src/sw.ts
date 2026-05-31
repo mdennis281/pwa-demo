@@ -1,7 +1,7 @@
 /// <reference lib="WebWorker" />
-import { precacheAndRoute } from 'workbox-precaching';
-import { registerRoute } from 'workbox-routing';
-import { CacheFirst, NetworkFirst, StaleWhileRevalidate } from 'workbox-strategies';
+import { precacheAndRoute, cleanupOutdatedCaches, createHandlerBoundToURL } from 'workbox-precaching';
+import { NavigationRoute, registerRoute } from 'workbox-routing';
+import { CacheFirst, StaleWhileRevalidate } from 'workbox-strategies';
 import { ExpirationPlugin } from 'workbox-expiration';
 import { CacheableResponsePlugin } from 'workbox-cacheable-response';
 
@@ -9,17 +9,42 @@ declare const self: ServiceWorkerGlobalScope & {
   __WB_MANIFEST: Array<{ url: string; revision: string | null }>;
 };
 
-precacheAndRoute(self.__WB_MANIFEST);
+// Bumped on every build (package version + git sha, see vite.config.ts).
+// Runtime caches are stamped with it so the new version's `activate` can
+// delete the previous version's caches — "invalidate the old SW" literally.
+const VERSION = __APP_VERSION__;
+const RUNTIME_CACHES = {
+  api: `api-${VERSION}`,
+  assets: `assets-${VERSION}`,
+};
 
+// Precache the entire built app (every JS chunk, CSS, HTML, icon, the tiny
+// demo video). That means every route and every demo whose logic is local —
+// graphics, workers, storage, sensors, the games' rendering — runs fully
+// offline once installed. cleanupOutdatedCaches() drops precache entries left
+// behind by previous builds so storage doesn't grow without bound.
+precacheAndRoute(self.__WB_MANIFEST);
+cleanupOutdatedCaches();
+
+// SPA navigation fallback: serve the precached index.html shell for ALL
+// navigations — not just previously-visited URLs — so a cold offline load of
+// e.g. /d/tower-climb works (React Router renders the route client-side from
+// the precached JS). /api and /socket.io are server-handled and must never be
+// answered with the HTML shell.
+const navigationHandler = createHandlerBoundToURL('index.html');
 registerRoute(
-  ({ request }) => request.mode === 'navigate',
-  new NetworkFirst({ cacheName: 'pages', networkTimeoutSeconds: 3 }),
+  new NavigationRoute(navigationHandler, {
+    denylist: [/^\/api\//, /^\/socket\.io\//],
+  }),
 );
 
+// API: stale-while-revalidate so cached responses paint instantly offline and
+// refresh in the background when online. (push/test is excluded — it must
+// always hit the server.)
 registerRoute(
   ({ url }) => url.pathname.startsWith('/api/') && url.pathname !== '/api/push/test',
   new StaleWhileRevalidate({
-    cacheName: 'api',
+    cacheName: RUNTIME_CACHES.api,
     plugins: [new CacheableResponsePlugin({ statuses: [0, 200] })],
   }),
 );
@@ -27,13 +52,34 @@ registerRoute(
 registerRoute(
   ({ request }) => ['image', 'font'].includes(request.destination),
   new CacheFirst({
-    cacheName: 'assets',
+    cacheName: RUNTIME_CACHES.assets,
     plugins: [
       new CacheableResponsePlugin({ statuses: [0, 200] }),
       new ExpirationPlugin({ maxEntries: 60, maxAgeSeconds: 30 * 24 * 60 * 60 }),
     ],
   }),
 );
+
+// ── Versioning / lifecycle ────────────────────────────────────────────────
+// When a new version activates, purge runtime caches that don't belong to it
+// (workbox's own precache is handled by cleanupOutdatedCaches above), then
+// claim open clients so this freshly-installed SW controls them immediately —
+// no "waiting" worker stuck behind open tabs. skipWaiting is triggered from
+// the page (lib/pwa.ts → SKIP_WAITING message) right before it reloads.
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    (async () => {
+      const keep = new Set<string>(Object.values(RUNTIME_CACHES));
+      const names = await caches.keys();
+      await Promise.all(
+        names
+          .filter((n) => !n.startsWith('workbox-precache') && !keep.has(n))
+          .map((n) => caches.delete(n)),
+      );
+      await self.clients.claim();
+    })(),
+  );
+});
 
 self.addEventListener('push', (event) => {
   const data = event.data ? safeJson(event.data) : {};

@@ -15,8 +15,9 @@ src/
 │   └─ lobby.ts          In-memory lobby state machine
 ├─ db/
 │   ├─ client.ts         Drizzle pool init (lazy, graceful degrade)
-│   ├─ schema.ts         Tables: connection_events, tower_high_scores
-│   └─ towerScores.ts    High-score read/write helpers
+│   ├─ schema.ts         Tables: connection_events, tower_high_scores, server_config
+│   ├─ towerScores.ts    High-score read/write helpers
+│   └─ serverConfig.ts   Dedicated-server config (singleton row + in-memory cache)
 └─ routes/
     ├─ vapid.ts          GET /api/vapid-public-key
     ├─ push.ts           Web Push subscribe / unsubscribe / send-now / send-delayed
@@ -72,27 +73,34 @@ The wire format is fully typed via `@pwa-demo/shared`. Each socket runs through 
 - `lobby:browser:join` / `lobby:browser:leave` — subscribe to lobby list updates
 - `lobby:create({name, displayName, character, role}, ack)` — open a new lobby
 - `lobby:join({lobbyId, displayName, character}, ack)` — join an existing lobby
-- `lobby:quick-join({displayName, character}, ack)` — drop straight into Official Server (`tower-official`)
-- `lobby:leave()` — leave; persists max height to DB if you were in the Official Server
-- `game:input({x, y, z, yaw, state: 'idle'|'run'|'air'})` — 20 Hz position update
-- `admin:action({type: 'kick'|'pause'|'config', …}, ack)` — host or admin-only
+- `lobby:quick-join({displayName, character}, ack)` — drop into the least-full dedicated server; errors `no dedicated servers available` when they're disabled
+- `lobby:leave()` — leave; persists max height to DB if you were on a dedicated server
+- `game:input({x, y, z, yaw, state: 'idle'|'run'|'air'})` — 20 Hz position update (ignored while the lobby is paused)
+- `admin:action({type: 'kick'|'pause'|'config', …}, ack)` — host or admin-only; acts on the **caller's current lobby** (config caps players 1–1000)
+- `admin:get-config(ack)` — admin-only; read the global dedicated-server config
+- `admin:set-config(patch, ack)` — admin-only; persist `{dedicatedEnabled?, dedicatedCount?, dedicatedPlayerCap?}` to `server_config` and reconcile the live fleet
 
 **Server → client:**
-- `lobby:list([{id, name, playerCount, maxPlayers, …}])` — broadcast on every lobby change
+- `lobby:list([{id, name, playerCount, maxPlayers, …}])` — broadcast on every lobby change (dedicated servers pinned at top)
 - `lobby:state({lobby, you: {role, character}}|null)` — the lobby you're in
 - `game:snapshot({lobbyId, t, players:[{id, x, y, z, yaw, state, ping, maxHeight, …}]})` — 20 Hz to each lobby room
-- `tower:leaderboard([{displayName, character, maxHeight, sessionMs, achievedAt}])` — on browser:join + when Official Server players leave
+- `tower:leaderboard([{displayName, character, maxHeight, sessionMs, achievedAt}])` — on browser:join + when a dedicated-server player leaves
+
+`admin:get-config` / `admin:set-config` are registered in [`game/index.ts`](src/game/index.ts) (they need the lobby registry + reconcile), and both gate on `socket.data.isAdmin`.
 
 Tower Climb specifics: [`apps/web/src/game/README.md`](../web/src/game/README.md) (the architectural quirks like "client-authoritative, server is a relay" apply on both sides).
 
 ## Database
 
-Two tables, both [Drizzle-defined](src/db/schema.ts):
+Three tables, all [Drizzle-defined](src/db/schema.ts):
 
 | Table | Purpose | Lifecycle |
 |---|---|---|
 | `connection_events` | Audit trail of socket connect/disconnects | Append-only |
-| `tower_high_scores` | Tower Climb leaderboard | Insert on player leaves Official Server with `maxHeight > 0` |
+| `tower_high_scores` | Tower Climb leaderboard | Insert on player leaves a dedicated server with `maxHeight > 0` |
+| `server_config` | Dedicated-server fleet config (singleton `id=1`) | Upserted whenever an admin applies changes; read once on boot |
+
+`server_config` is fronted by an **in-memory cache** in [`serverConfig.ts`](src/db/serverConfig.ts): reconcile and quick-join read the cache (never the DB), so the dedicated-server feature works fully even with no Postgres — it just won't survive a restart. Writes are clamped (`count` 1–50, `cap` 1–1000) and best-effort persisted.
 
 **Graceful DB degrade** — [`db/client.ts`](src/db/client.ts) initializes the pool lazily; if it can't connect, `getDb()` returns null and every db-touching code path no-ops cleanly. The server stays up; only the leaderboard loses persistence.
 
@@ -115,7 +123,8 @@ Three things live in Node's heap and are lost on restart:
 | State | Lives in | Loss on restart |
 |---|---|---|
 | Push subscriptions | `routes/push.ts` `Map<endpoint, PushSubscription>` | Yes — users would need to re-subscribe |
-| Tower Climb lobbies & players | `game/lobby.ts` registry | Yes — players auto-leave on disconnect anyway |
+| Tower Climb lobbies & players | `game/lobby.ts` registry | Yes — players auto-leave on disconnect anyway. Dedicated servers are re-materialized on boot from `server_config` |
+| Dedicated-server config | `db/serverConfig.ts` cache, backed by `server_config` | **No** — restored from Postgres on boot (defaults if no DB) |
 | Passkey credentials | `routes/passkeys.ts` `Map<credentialId, ...>` | Yes — credential cleared, browser still has it (next register replaces) |
 | Pending WebAuthn challenges | `routes/passkeys.ts` | Yes — auto-expire after 5 min anyway |
 
@@ -127,7 +136,7 @@ The server distinguishes three identity tiers:
 
 - **Anonymous** — no auth. Default. Can join open lobbies, see public state.
 - **Bot** — `isBot: true` + matching `LOADTEST_TOKEN` at handshake. Bypasses lobby max-player caps; excluded from leaderboard persistence.
-- **Admin** — post-connect `admin:elevate` with matching `ADMIN_TOKEN`. Can kick from / pause / reconfigure any lobby including the Official Server. Admins are per-socket; reconnect requires re-elevation.
+- **Admin** — post-connect `admin:elevate` with matching `ADMIN_TOKEN`. Can kick from / pause / reconfigure any lobby including the dedicated servers, **and** edit the global dedicated-server config (`admin:get-config` / `admin:set-config`). Admins are per-socket; reconnect requires re-elevation (the web client auto-replays its saved token).
 
 ## Env
 

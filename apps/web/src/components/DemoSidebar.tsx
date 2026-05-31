@@ -20,6 +20,38 @@ const DOT: Record<Support, string> = {
   unknown: 'bg-slate-600',
 };
 
+// Continuous support-percentage scale: red → orange → yellow → lime → emerald.
+// Interpolates through Tailwind-flavored stops so the path stays vibrant (no
+// muddy olive midpoint) and 100% lands on the site's emerald green. Each stop
+// is a [pct, [r, g, b]] anchor; values between stops blend linearly.
+const PCT_STOPS: Array<[number, [number, number, number]]> = [
+  [0, [0xef, 0x44, 0x44]], // red-500
+  [25, [0xf9, 0x73, 0x16]], // orange-500
+  [50, [0xfb, 0xbf, 0x24]], // amber-400
+  [75, [0xa3, 0xe6, 0x35]], // lime-400
+  [100, [0x34, 0xd3, 0x99]], // emerald-400 (site theme green)
+];
+
+function pctColor(pct: number): string {
+  const p = Math.max(0, Math.min(100, pct));
+  let lo = PCT_STOPS[0];
+  let hi = PCT_STOPS[PCT_STOPS.length - 1];
+  for (let i = 0; i < PCT_STOPS.length - 1; i++) {
+    if (p >= PCT_STOPS[i][0] && p <= PCT_STOPS[i + 1][0]) {
+      lo = PCT_STOPS[i];
+      hi = PCT_STOPS[i + 1];
+      break;
+    }
+  }
+  const span = hi[0] - lo[0];
+  const t = span === 0 ? 0 : (p - lo[0]) / span;
+  const ch = (i: number) =>
+    Math.round(lo[1][i] + (hi[1][i] - lo[1][i]) * t)
+      .toString(16)
+      .padStart(2, '0');
+  return `#${ch(0)}${ch(1)}${ch(2)}`;
+}
+
 export default function DemoSidebar() {
   const statuses = useCapabilityStatuses();
   const [query, setQuery] = useState('');
@@ -95,7 +127,6 @@ export default function DemoSidebar() {
           const supported = all.filter((c) => statuses[c.id] === 'supported').length;
           const partial = all.filter((c) => statuses[c.id] === 'partial').length;
           const pct = all.length === 0 ? 0 : Math.round(((supported + partial) / all.length) * 100);
-          const pctColor = pct >= 80 ? 'text-emerald-400' : pct >= 50 ? 'text-amber-400' : pct > 0 ? 'text-rose-400' : 'text-slate-600';
           const override = openOverrides[cat];
           const open = isSearching ? true : (override ?? cat === activeCategory);
 
@@ -109,7 +140,10 @@ export default function DemoSidebar() {
                   <span className={`text-slate-500 transition-transform inline-block w-3 ${open ? 'rotate-90' : ''}`}>▸</span>
                   <span className="truncate text-xs uppercase tracking-wider text-slate-300">{cat}</span>
                 </span>
-                <span className={`shrink-0 font-mono text-xs font-semibold tabular-nums ${pctColor}`}>
+                <span
+                  className="shrink-0 font-mono text-xs font-semibold tabular-nums"
+                  style={{ color: pctColor(pct) }}
+                >
                   {pct}%
                 </span>
               </button>

@@ -105,6 +105,7 @@ export default function Player({
   spawn,
   cheats,
   fly,
+  paused,
   goal,
   checkpoints,
   onInput,
@@ -123,6 +124,8 @@ export default function Player({
   /** Active flight (dev cheat OR earned summit reward). capY/minY clamp the
    *  vertical range; leashR softly tethers you to the map horizontally. */
   fly: { active: boolean; capY: number; minY: number; leashR: number };
+  /** When true the game is paused: freeze physics, camera, and input send. */
+  paused: boolean;
   goal: { x: number; y: number; z: number };
   checkpoints: Checkpoint[];
   onInput: (i: LocalInput) => void;
@@ -173,16 +176,25 @@ export default function Player({
 
   useFrame((state, dt) => {
     const s = stateRef.current;
+    // Paused — fully frozen. No physics, no camera follow, no network send.
+    // We only drain the jump *press* latch so a tap during the pause doesn't
+    // fire on resume; movement keys are left alone (they track the real key
+    // state via useKeyboard) so a player who held W through the pause keeps
+    // moving on resume instead of having to release and re-press.
+    if (paused) {
+      input.jumpPressed = false;
+      return;
+    }
     const cdt = Math.min(dt, 0.05);
     const now = state.clock.elapsedTime * 1000;
 
     // ── FLY — bypass physics and move freely (dev cheat OR earned reward) ──
     if (fly.active) {
       const yaw = input.yaw;
-      const fwd = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
-      const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
-      const moveX = right.x * input.right + fwd.x * input.forward;
-      const moveZ = right.z * input.right + fwd.z * input.forward;
+      const fwdX = -Math.sin(yaw), fwdZ = -Math.cos(yaw);
+      const rightX = Math.cos(yaw), rightZ = -Math.sin(yaw);
+      const moveX = rightX * input.right + fwdX * input.forward;
+      const moveZ = rightZ * input.right + fwdZ * input.forward;
       const mag = Math.hypot(moveX, moveZ);
       let vx = 0, vz = 0;
       if (mag > 0) {
@@ -238,10 +250,10 @@ export default function Player({
 
     // ── direction from input + camera yaw ──
     const yaw = input.yaw;
-    const fwd = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
-    const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
-    const moveX = right.x * input.right + fwd.x * input.forward;
-    const moveZ = right.z * input.right + fwd.z * input.forward;
+    const fwdX = -Math.sin(yaw), fwdZ = -Math.cos(yaw);
+    const rightX = Math.cos(yaw), rightZ = -Math.sin(yaw);
+    const moveX = rightX * input.right + fwdX * input.forward;
+    const moveZ = rightZ * input.right + fwdZ * input.forward;
     const mag = Math.hypot(moveX, moveZ);
     let desiredVx = 0;
     let desiredVz = 0;
@@ -377,7 +389,8 @@ export default function Player({
     // ── checkpoints: arm the highest reached respawn anchor (no downgrade) ──
     // Circular zone, and a tight vertical band so you must actually be standing
     // on the checkpoint deck (not a nearby surface at a different height).
-    if (s.grounded) {
+    // Stops once the summit's been reached — see the respawn note below.
+    if (s.grounded && !summitDoneRef.current) {
       for (const c of checkpoints) {
         if (c.y <= reachedCpRef.current) continue;
         const dxz = Math.hypot(s.x - c.x, s.z - c.z);
@@ -402,10 +415,14 @@ export default function Player({
     // solid ground plate you rarely fall below y=-20 — you just thud onto the
     // village floor. So also respawn the moment you drop well below the armed
     // checkpoint (a clear fall), which is what makes checkpoints actually work.
+    //
+    // Once you've reached the summit, checkpoints switch off entirely: you've
+    // won and earned flight (F), so a fall is no longer a setback — land on the
+    // floor and fly back up rather than getting teleported to a checkpoint.
     const cpY = reachedCpRef.current;
     const fellOffWorld = s.y < -20;
     const fellBelowCheckpoint = cpY > -Infinity && s.y < cpY - 6;
-    if (fellOffWorld || fellBelowCheckpoint) {
+    if (!summitDoneRef.current && (fellOffWorld || fellBelowCheckpoint)) {
       const sp = respawnRef.current;
       s.x = sp.x; s.y = sp.y; s.z = sp.z;
       s.vx = 0; s.vy = 0; s.vz = 0;

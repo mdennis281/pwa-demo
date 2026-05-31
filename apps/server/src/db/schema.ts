@@ -1,4 +1,4 @@
-import { index, integer, pgTable, real, serial, text, timestamp } from 'drizzle-orm/pg-core';
+import { boolean, index, integer, pgTable, real, serial, text, timestamp } from 'drizzle-orm/pg-core';
 
 export const connectionEvents = pgTable('connection_events', {
   id: serial('id').primaryKey(),
@@ -28,3 +28,16 @@ export const towerHighScores = pgTable(
     byMaxHeight: index('tower_high_scores_max_height_idx').on(t.maxHeight),
   }),
 );
+
+/** Singleton (id = 1) row holding the admin-editable, fleet-wide config for the
+ *  always-on dedicated ("Official") Tower Climb servers: whether they run, how
+ *  many, and the per-server player cap. Read once on boot to materialize the
+ *  dedicated lobbies, then rewritten whenever an admin applies changes from the
+ *  server-browser admin menu. Survives restarts; the live lobbies don't. */
+export const serverConfig = pgTable('server_config', {
+  id: integer('id').primaryKey(), // always 1 — there is exactly one config row
+  dedicatedEnabled: boolean('dedicated_enabled').notNull().default(true),
+  dedicatedCount: integer('dedicated_count').notNull().default(1),
+  dedicatedPlayerCap: integer('dedicated_player_cap').notNull().default(25),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});

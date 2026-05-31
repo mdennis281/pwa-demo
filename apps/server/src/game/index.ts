@@ -6,16 +6,17 @@ import type {
   PlayerSnapshot,
 } from '@pwa-demo/shared';
 import {
-  OFFICIAL_LOBBY_ID,
   allLobbies,
   createLobby,
-  ensureOfficialLobby,
   getLobbyOf,
+  isDedicatedLobbyId,
   joinLobby,
   kickPlayer,
   leaveLobby,
   listLobbies,
   lobbyToState,
+  pickQuickJoinLobby,
+  reconcileDedicatedLobbies,
   setPaused,
   updateInput,
   updateLobbyConfig,
@@ -26,6 +27,13 @@ import {
   recordTowerHighScore,
   topTowerHighScores,
 } from '../db/towerScores.js';
+import {
+  ensureServerConfigTable,
+  getServerConfig,
+  loadServerConfig,
+  saveServerConfig,
+} from '../db/serverConfig.js';
+import type { ReconcileResult } from './lobby.js';
 
 const BROWSER_ROOM = 'lobby:browser';
 const TICK_HZ = 20;
@@ -63,6 +71,37 @@ function broadcastLobbyState(
   io.to(room).emit('lobby:state', lobbyToState(lobby));
 }
 
+/** Apply a dedicated-server reconcile to the live socket world: boot the
+ *  players of any torn-down server back to the browser, persist their in-flight
+ *  high scores (a teardown is everyone leaving at once — same rule as
+ *  handleLeave), push fresh state to the servers whose cap/name changed, and
+ *  refresh the lobby list everywhere. */
+function applyReconcile(
+  io: Server<ClientToServerEvents, ServerToClientEvents>,
+  result: ReconcileResult,
+): void {
+  let persisted = false;
+  for (const removed of result.removed) {
+    for (const p of removed.players) {
+      io.to(p.socketId).socketsLeave(lobbyRoom(removed.id));
+      io.to(p.socketId).emit('lobby:state', null);
+      // Mirror handleLeave: dedicated-server, non-bot, real climb → record it.
+      if (!p.isBot && p.maxHeight > 0) {
+        persisted = true;
+        void recordTowerHighScore({
+          displayName: p.displayName,
+          character: p.character,
+          maxHeight: p.maxHeight,
+          sessionMs: Date.now() - p.joinedAt,
+        });
+      }
+    }
+  }
+  for (const id of result.updated) broadcastLobbyState(io, id);
+  broadcastBrowser(io);
+  if (persisted) void broadcastLeaderboard(io);
+}
+
 function startTickLoop(io: Server<ClientToServerEvents, ServerToClientEvents>): () => void {
   const interval = setInterval(() => {
     const now = Date.now();
@@ -71,6 +110,7 @@ function startTickLoop(io: Server<ClientToServerEvents, ServerToClientEvents>): 
       if (lobby.paused) continue; // skip snapshot when paused — clients freeze
       const players: PlayerSnapshot[] = [...lobby.players.values()].map((p) => ({
         id: p.socketId,
+        clientId: p.clientId,
         displayName: p.displayName,
         character: p.character,
         role: p.role,
@@ -113,9 +153,10 @@ async function handleLeave(
   const r = leaveLobby(socketId);
   if (!r) return null;
   // Bots run circles forever and would otherwise top the leaderboard with
-  // junk maxHeight values — skip the write entirely.
+  // junk maxHeight values — skip the write entirely. Scores persist for any
+  // dedicated server, not just the first one.
   if (
-    r.lobbyId === OFFICIAL_LOBBY_ID &&
+    isDedicatedLobbyId(r.lobbyId) &&
     r.player &&
     !r.player.isBot &&
     r.player.maxHeight > 0
@@ -143,15 +184,21 @@ export function attachGame(
   }
   if (!bootstrapped) {
     bootstrapped = true;
-    // 1. Make sure the persistent DB table exists. Non-fatal if no DB.
-    // 2. Materialize the Official Server lobby so it's already in
-    //    listLobbies() the moment the first client subscribes.
+    // 1. Make sure the persistent DB tables exist. Non-fatal if no DB.
+    // 2. Load the saved dedicated-server config and materialize that many
+    //    Official Servers so they're already in listLobbies() the moment the
+    //    first client subscribes.
     // 3. Prime the leaderboard cache so the first browser:join receives it.
     void (async () => {
       await ensureTowerScoresTable();
-      ensureOfficialLobby();
+      await ensureServerConfigTable();
+      const config = await loadServerConfig();
+      applyReconcile(io, reconcileDedicatedLobbies(config));
       await broadcastLeaderboard(io);
-      console.log('[tower] Official Server lobby is live (' + OFFICIAL_LOBBY_ID + ')');
+      console.log(
+        `[tower] dedicated servers live: ${config.dedicatedEnabled ? config.dedicatedCount : 0}` +
+          ` (cap ${config.dedicatedPlayerCap})`,
+      );
     })();
   }
 
@@ -179,6 +226,7 @@ export function attachGame(
     }
     const lobby = createLobby({
       socketId: socket.id,
+      clientId: socket.data.clientId ?? socket.id,
       name: opts.name,
       displayName: opts.displayName,
       character: opts.character,
@@ -200,6 +248,7 @@ export function attachGame(
     }
     const result = joinLobby({
       socketId: socket.id,
+      clientId: socket.data.clientId ?? socket.id,
       lobbyId: opts.lobbyId,
       displayName: opts.displayName,
       character: opts.character,
@@ -216,18 +265,24 @@ export function attachGame(
   });
 
   socket.on('lobby:quick-join', async (opts, cb) => {
-    // Drop straight into the Official Server. Idempotent — if the caller is
-    // already on it, we just hand back the current state without churn.
+    // Drop into the least-full dedicated server. If none are running (admin
+    // disabled them), Quick Play is offline.
+    const target = pickQuickJoinLobby();
+    if (!target) {
+      cb({ ok: false, error: 'no dedicated servers available' });
+      return;
+    }
+    // Idempotent — if already on the chosen server, just hand back its state.
     const existing = getLobbyOf(socket.id);
-    if (existing && existing.id !== OFFICIAL_LOBBY_ID) {
+    if (existing && existing.id !== target.id) {
       socket.leave(lobbyRoom(existing.id));
       const r = await handleLeave(io, socket.id);
       if (r) broadcastLobbyState(io, r.lobbyId);
     }
-    ensureOfficialLobby();
     const result = joinLobby({
       socketId: socket.id,
-      lobbyId: OFFICIAL_LOBBY_ID,
+      clientId: socket.data.clientId ?? socket.id,
+      lobbyId: target.id,
       displayName: opts.displayName,
       character: opts.character,
       isBot: socket.data.isBot === true,
@@ -285,6 +340,27 @@ export function attachGame(
     } else {
       cb({ ok: false, error: 'unknown action' });
     }
+  });
+
+  // Global dedicated-server config — admin only, distinct from the per-lobby
+  // admin:action above. Read populates the server-browser admin menu; set
+  // persists + reconciles the live fleet.
+  socket.on('admin:get-config', (cb) => {
+    if (socket.data.isAdmin !== true) {
+      cb({ ok: false, error: 'not authorized' });
+      return;
+    }
+    cb({ ok: true, config: getServerConfig() });
+  });
+
+  socket.on('admin:set-config', async (patch, cb) => {
+    if (socket.data.isAdmin !== true) {
+      cb({ ok: false, error: 'not authorized' });
+      return;
+    }
+    const config = await saveServerConfig(patch ?? {});
+    applyReconcile(io, reconcileDedicatedLobbies(config));
+    cb({ ok: true, config });
   });
 
   socket.on('disconnect', async () => {

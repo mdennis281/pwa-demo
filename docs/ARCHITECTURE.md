@@ -115,7 +115,7 @@ The server holds subscriptions in memory; restart clears them. The trade-off is 
 ## Data layer
 
 - **Cloud SQL Postgres** (managed; Cloud Run reaches it via Unix-socket Cloud SQL Auth Proxy injected by `--add-cloudsql-instances`).
-- **Drizzle ORM** with `pg` driver. Two tables today: `connection_events` (audit trail of socket connects) and `tower_high_scores` (Tower Climb leaderboard).
+- **Drizzle ORM** with `pg` driver. Three tables today: `connection_events` (audit trail of socket connects), `tower_high_scores` (Tower Climb leaderboard), and `server_config` (singleton row — the admin-editable dedicated-server fleet config, fronted by an in-memory cache so it works DB-less too).
 - **Graceful degrade:** if `DATABASE_URL` is wrong or Postgres is unreachable, `getDb()` returns null. All DB writes/reads no-op safely. The server keeps running; only the DB-backed demos (passkeys, leaderboard) lose persistence.
 
 In-memory state (push subscriptions, lobbies, players, passkey credentials) lives in the Node process and is lost on restart. That's fine for everything except the high score leaderboard, which is the one piece of persistence-worthy state.
@@ -128,7 +128,7 @@ Three identity tiers, distinguished by what gets presented at socket connection:
 |---|---|---|
 | Anonymous | No auth | Browse, join open lobbies, vote etc. |
 | Bot | `io({ auth: { isBot: true, token: LOADTEST_TOKEN } })` at handshake | Bypass lobby maxPlayers cap, excluded from leaderboard persistence. Reject if token wrong. |
-| Admin | Post-connect `socket.emit('admin:elevate', token)` callback | Kick players, pause Official Server, edit lobby config. Admins are sticky on the same socket; reconnect re-elevates. |
+| Admin | Post-connect `socket.emit('admin:elevate', token)` callback | Kick/pause/reconfigure any lobby; edit the global dedicated-server fleet config (count / cap / on-off). Admins are sticky on the same socket; reconnect re-elevates (the web client auto-replays its saved token). |
 
 REST endpoints don't have user auth (it's a public demo). WebAuthn / Passkeys demos use the in-memory passkey store at `/api/passkeys/*` — that's a real WebAuthn implementation but the credential store is in-memory and demo-scope only.
 
@@ -192,7 +192,7 @@ Each tier is documented in [`apps/server/README.md`](../apps/server/README.md).
 A non-trivial subsystem worth calling out separately. **Client-authoritative**: server is purely a relay + scorekeeper, no physics replication. The whole tower is deterministic and seed-based (seed=1337), so all clients see the same world without any state being transmitted.
 
 - **Client** (`apps/web/src/game/`) — react-three-fiber Canvas, hand-rolled AABB sweep physics, 20 Hz input emit, 110 ms interpolation buffer for remote players, shader precompiler to dodge first-frame jank.
-- **Server** (`apps/server/src/game/`) — in-memory lobby registry, 20 Hz snapshot broadcast per room, persistent Official Server with sentinel host, high score writes on disconnect.
+- **Server** (`apps/server/src/game/`) — in-memory lobby registry, 20 Hz snapshot broadcast per room, a configurable fleet of always-on dedicated ("Official") servers with sentinel hosts (count/cap from the `server_config` table, reconciled on boot and on admin change), high score writes on disconnect.
 
 Full geometry inventory, physics tuning, controls, and architectural quirks: [`apps/web/src/game/README.md`](../apps/web/src/game/README.md).
 
