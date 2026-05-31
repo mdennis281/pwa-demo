@@ -20,6 +20,14 @@ export const SW_HISTORY_DB = 'sw-history';
 export const SW_HISTORY_STORE = 'versions';
 export const SW_HISTORY_DB_VERSION = 1;
 
+/**
+ * Hard cap on retained install-context records. When a fresh version pushes
+ * the store past this, the oldest records are pruned (see recordVersion). Keeps
+ * the log bounded on devices that ride many deploys — diagnostic value lives in
+ * the recent tail, not in records from months ago.
+ */
+export const SW_HISTORY_MAX = 20;
+
 export type SwVersionRecord = {
   /** App/SW version string, e.g. "2026.05.31.50421" — the keyPath. */
   version: string;
@@ -78,6 +86,40 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
+/** Newest known moment on a record — used for both sorting and prune ordering. */
+function recency(r: SwVersionRecord): number {
+  return Math.max(
+    r.installAt ?? 0,
+    r.lastInstallAt ?? 0,
+    r.firstSeenAt ?? 0,
+    r.installingAt ?? 0,
+    r.installedAt ?? 0,
+    r.activatingAt ?? 0,
+    r.activatedAt ?? 0,
+    r.activateAt ?? 0,
+    r.activateDoneAt ?? 0,
+    r.controlledAt ?? 0,
+  );
+}
+
+/**
+ * Drop the oldest records beyond SW_HISTORY_MAX. Runs inside the caller's
+ * readwrite transaction — the preceding put is already visible to getAll
+ * (requests on one store execute in issue order), so the just-written record
+ * counts toward the cap and, being the newest, is never the one pruned.
+ */
+function pruneToCap(store: IDBObjectStore): void {
+  const allReq = store.getAll();
+  allReq.onsuccess = () => {
+    const rows = (allReq.result as SwVersionRecord[]) ?? [];
+    if (rows.length <= SW_HISTORY_MAX) return;
+    rows
+      .sort((a, b) => recency(b) - recency(a)) // newest first
+      .slice(SW_HISTORY_MAX) // everything past the cap
+      .forEach((r) => store.delete(r.version));
+  };
+}
+
 function merge(existing: SwVersionRecord, patch: Partial<SwVersionRecord>): SwVersionRecord {
   const out: SwVersionRecord = { ...existing };
   for (const [k, v] of Object.entries(patch) as [keyof SwVersionRecord, unknown][]) {
@@ -114,6 +156,7 @@ export async function recordVersion(
           version: patch.version,
         };
         store.put(merge(existing, patch));
+        pruneToCap(store); // keep at most SW_HISTORY_MAX records
       };
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);

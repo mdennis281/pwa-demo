@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { DemoPage } from '../_DemoPage';
 import { Btn } from '../_shared/ui';
-import { readHistory, clearHistory, type SwVersionRecord } from '../../lib/swHistoryDb';
+import { readHistory, clearHistory, SW_HISTORY_MAX, type SwVersionRecord } from '../../lib/swHistoryDb';
 import { querySwInfo } from '../../lib/swLifecycle';
 import { applyUpdate, checkForUpdate } from '../../lib/pwa';
 
@@ -467,7 +467,8 @@ export default function ServiceWorkerDemo() {
           <div>
             <h2 className="text-sm font-medium text-slate-400">Version history</h2>
             <p className="text-xs text-slate-500">
-              Every SW build this device has installed, persisted to the <span className="font-mono">sw-history</span> IndexedDB store.
+              The {SW_HISTORY_MAX} most recent SW builds this device has installed, persisted to the{' '}
+              <span className="font-mono">sw-history</span> IndexedDB store (oldest pruned past {SW_HISTORY_MAX}).
             </p>
           </div>
           {history.length > 0 && (
