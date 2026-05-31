@@ -174,8 +174,8 @@ function ladderVolume(out: WorldData, opts: { cx: number; cz: number; baseY: num
 }
 
 /** Breakaway (ice) timing — shared by Player (collision) and World (animation). */
-const BREAK_DELAY_MS = 550;     // crack → start falling
-const BREAK_RESPAWN_MS = 3500;  // fully gone → respawn
+const BREAK_DELAY_MS = 340;     // crack → start falling (tight — keep moving!)
+const BREAK_RESPAWN_MS = 3200;  // fully gone → respawn
 export { BREAK_DELAY_MS, BREAK_RESPAWN_MS };
 
 function mover(out: WorldData, o: { ax?: number; ay?: number; az?: number; bx?: number; by?: number; bz?: number; hx: number; hy: number; hz: number; period: number; phase?: number; color?: string; kind?: 'platform' | 'wall'; style?: Mover['style']; orbit?: { px: number; py: number; pz: number; radius: number } }) {
@@ -212,21 +212,35 @@ function gondolaWheel(out: WorldData, pivot: { x: number; y: number; z: number }
 // ════════════════════════════════════════════════════════════════════════
 //  JUMP ENVELOPE + ROUTE (verification only — placement is by hand)
 // ════════════════════════════════════════════════════════════════════════
-const G = 28, VJ = 13, SPEED = 7;
+const G = 28, VJ = 13, DJ = 10, SPEED = 7;
+/** Max horizontal a SINGLE jump's descending arc has travelled at height +dh. */
 function reachSingle(dh: number): number {
   const disc = VJ * VJ - 2 * G * dh;
   if (disc < 0) return 0;
   return SPEED * ((VJ + Math.sqrt(disc)) / G);
 }
+/** Max horizontal for a DOUBLE jump (second pop at apex, vy→10) landing at +dh.
+ *  airtime = up(VJ/G) + up2(DJ/G) + fall from peak(=VJ²/2G+DJ²/2G) to dh. */
+function reachDouble(dh: number): number {
+  const peak = (VJ * VJ + DJ * DJ) / (2 * G); // ≈ 4.80 m
+  if (dh >= peak) return 0;
+  const t = VJ / G + DJ / G + Math.sqrt((peak - dh) * 2 / G);
+  return SPEED * t;
+}
+// Difficulty bands. `horiz` is an upper bound; the real cap is the physics
+// envelope (reachSingle/reachDouble) at the SAFETY factor below — tuned tight
+// so jumps demand near-perfect commitment, not a stroll.
 export type Band = 'walk' | 'easy' | 'medium' | 'hard' | 'double';
 const BANDS: Record<Band, { dh: number; horiz: number; jumps: 1 | 2 }> = {
   walk: { dh: 0.6, horiz: 1.3, jumps: 1 },
-  easy: { dh: 2.0, horiz: 3.0, jumps: 1 },
-  medium: { dh: 2.5, horiz: 3.8, jumps: 1 },
-  hard: { dh: 2.8, horiz: 4.3, jumps: 1 },
-  double: { dh: 4.2, horiz: 5.2, jumps: 2 },
+  easy: { dh: 2.2, horiz: 4.2, jumps: 1 },   // a committed single jump
+  medium: { dh: 2.0, horiz: 5.2, jumps: 1 }, // longer / precise single
+  hard: { dh: 1.5, horiz: 6.0, jumps: 1 },   // near the single-jump limit
+  double: { dh: 3.4, horiz: 9.2, jumps: 2 }, // can't be done single — must double
 };
 export { BANDS };
+const SINGLE_SAFETY = 0.97; // gaps sit at 97% of the real single-jump arc
+const DOUBLE_SAFETY = 0.93;
 
 function halfAlong(hx: number, hz: number, dx: number, dz: number): number {
   return Math.abs(dx) * hx + Math.abs(dz) * hz;
@@ -249,10 +263,19 @@ class Route {
     const gap = Math.max(0, len - halfAlong(this.hx, this.hz, ux, uz) - halfAlong(hx, hz, ux, uz));
     const rise = y - this.y;
     if (kind === 'jump' || kind === 'double' || kind === 'walk' || kind === 'shortcut') {
-      const b = BANDS[kind === 'shortcut' ? 'double' : band];
-      if (rise > b.dh + 1e-6) throw new Error(`[${this.label}] ${kind} to (${x},${y},${z}): rise ${rise.toFixed(2)} > ${band} dh ${b.dh}`);
-      if (gap > b.horiz + 1e-6) throw new Error(`[${this.label}] ${kind} to (${x},${y},${z}): gap ${gap.toFixed(2)} > ${band} horiz ${b.horiz}`);
-      if (b.jumps === 1 && gap > reachSingle(Math.max(0, rise)) * 0.92) throw new Error(`[${this.label}] ${kind} to (${x},${y},${z}): gap ${gap.toFixed(2)} near single-jump limit ${reachSingle(Math.max(0, rise)).toFixed(2)}`);
+      const eff: Band = kind === 'shortcut' ? 'double' : band;
+      const b = BANDS[eff];
+      const rr = Math.max(0, rise);
+      if (rise > b.dh + 1e-6) throw new Error(`[${this.label}] ${kind} to (${x},${y},${z}): rise ${rise.toFixed(2)} > ${eff} dh ${b.dh}`);
+      if (gap > b.horiz + 1e-6) throw new Error(`[${this.label}] ${kind} to (${x},${y},${z}): gap ${gap.toFixed(2)} > ${eff} horiz ${b.horiz}`);
+      if (b.jumps === 1) {
+        if (gap > reachSingle(rr) * SINGLE_SAFETY) throw new Error(`[${this.label}] ${eff} to (${x},${y},${z}): gap ${gap.toFixed(2)} > single limit ${(reachSingle(rr) * SINGLE_SAFETY).toFixed(2)} (rise ${rr.toFixed(2)})`);
+      } else {
+        // a double-jump foothold: must be UNreachable by a single (so it forces
+        // the double) yet within the double-jump arc.
+        if (gap <= reachSingle(rr)) throw new Error(`[${this.label}] ${eff} to (${x},${y},${z}): gap ${gap.toFixed(2)} is single-jumpable (${reachSingle(rr).toFixed(2)}) — not a real double`);
+        if (gap > reachDouble(rr) * DOUBLE_SAFETY) throw new Error(`[${this.label}] ${eff} to (${x},${y},${z}): gap ${gap.toFixed(2)} > double limit ${(reachDouble(rr) * DOUBLE_SAFETY).toFixed(2)} (rise ${rr.toFixed(2)})`);
+      }
     }
     this.out.edges.push({ ax: this.x, ay: this.y, az: this.z, bx: x, by: y, bz: z, band, kind });
     this.x = x; this.y = y; this.z = z; this.hx = hx; this.hz = hz;
@@ -567,52 +590,55 @@ export function generateWorld(seed = 1337): WorldData {
     out.flags.push({ x: r.x + ox * (r.hx + 0.1), y: r.y + 0.5, z: r.z + oz * (r.hz + 0.1), rotY: r.angle, color: flag });
     if (lamp) lantern(out, r.x - ox * (r.hx - 0.3), r.y, r.z - oz * (r.hz - 0.3), 1.5);
   };
-  // ════ DISTRICT 1 — GARDEN RISE (y0.6 → ~11, easy → medium) ════
-  r.arc({ dDeg: 30, R: R0, rise: 1.6, hx: 1.5, hz: 1.5, band: 'easy', skin: isle(PAL.garden) });
-  r.arc({ dDeg: 34, R: R0, rise: 1.9, hx: 1.4, hz: 1.4, band: 'easy', skin: isle(PAL.garden) });
-  r.arc({ dDeg: 38, R: R0, rise: 2.0, hx: 1.3, hz: 1.3, band: 'medium', skin: isle(PAL.garden) });
-  tree(out, r.x, r.z - 0.1, 1.6, 'blossom');
-  r.arc({ dDeg: 38, R: R0, rise: 2.0, hx: 1.3, hz: 1.3, band: 'medium', skin: isle(PAL.garden) });
-  r.arc({ dDeg: 34, R: R0, rise: 1.6, hx: 1.9, hz: 1.7, band: 'medium', skin: isle(PAL.garden) });
+  // ════ DISTRICT 1 — GARDEN RISE (committed single jumps onto small islands) ════
+  r.arc({ dDeg: 32, R: R0, rise: 1.7, hx: 1.0, hz: 1.0, band: 'medium', skin: isle(PAL.garden) });
+  const scA = { x: r.x, y: r.y, z: r.z, hx: r.hx, hz: r.hz };  // shortcut launch
+  r.arc({ dDeg: 30, R: R0, rise: 1.0, hx: 0.9, hz: 0.9, band: 'medium', skin: isle(PAL.garden) });
+  r.arc({ dDeg: 30, R: R0, rise: 1.0, hx: 0.9, hz: 0.9, band: 'medium', skin: isle(PAL.garden) });
+  // SHORTCUT: skip the two stepping islands with one big double across the drop.
+  out.edges.push({ ax: scA.x, ay: scA.y, az: scA.z, bx: r.x, by: r.y, bz: r.z, band: 'double', kind: 'shortcut' });
+  tree(out, r.x, r.z - 0.1, 1.5, 'blossom');
+  r.arc({ dDeg: 36, R: R0, rise: 1.9, hx: 0.95, hz: 0.95, band: 'medium', skin: isle(PAL.garden) });
+  r.arc({ dDeg: 32, R: R0, rise: 1.6, hx: 1.6, hz: 1.4, band: 'medium', skin: isle(PAL.garden) });
   r.checkpoint('Garden Rise', 1); dress(C.flag4, true);
 
-  // ════ DISTRICT 2 — WINDMILL HEIGHTS (y11 → ~23; RIDE A TURNING WHEEL) ════
-  r.arc({ dDeg: 36, R: R0, rise: 2.0, hx: 1.4, hz: 1.4, band: 'medium', skin: isle(PAL.wheat) });
+  // ════ DISTRICT 2 — WINDMILL HEIGHTS (long, low, precise jumps + the WHEEL) ════
+  r.arc({ dDeg: 44, R: R0, rise: 1.0, hx: 0.85, hz: 0.85, band: 'hard', skin: isle(PAL.wheat) }); // long flat leap
   out.windmills.push({ x: r.x, y: r.y + 1.9, z: r.z, rotY: r.angle, scale: 0.6 });
-  r.arc({ dDeg: 34, R: R0, rise: 1.9, hx: 1.5, hz: 1.5, band: 'medium', skin: isle(PAL.wheat) });
-  // THE GONDOLA WHEEL — board the bottom gondola, ride it up, hop off at the top.
+  r.arc({ dDeg: 40, R: R0, rise: 1.4, hx: 0.85, hz: 0.85, band: 'hard', skin: isle(PAL.wheat) });
+  // THE GONDOLA WHEEL — time the board, ride a gondola up, hop off at the top.
   {
     const ahead = r.angle + 0.42;
-    const px = Math.cos(ahead) * R0, pz = Math.sin(ahead) * R0, py = r.y + 4.2;
-    const w = gondolaWheel(out, { x: px, y: py, z: pz }, 3.8, 4, 9, C.plank);
-    r.link(w.bottom.x, w.bottom.y, w.bottom.z, 1.25, 1.25, 'medium', 'jump');
+    const px = Math.cos(ahead) * R0, pz = Math.sin(ahead) * R0, py = r.y + 4.4;
+    const w = gondolaWheel(out, { x: px, y: py, z: pz }, 4.0, 4, 7, C.plank); // faster (period 7)
+    r.link(w.bottom.x, w.bottom.y, w.bottom.z, 1.1, 1.1, 'hard', 'jump');
     out.edges.push({ ax: w.bottom.x, ay: w.bottom.y, az: w.bottom.z, bx: w.top.x, by: w.top.y, bz: w.top.z, band: 'easy', kind: 'mover' });
-    r.x = w.top.x; r.y = w.top.y; r.z = w.top.z; r.hx = 1.25; r.hz = 1.25; r.angle = ahead;
+    r.x = w.top.x; r.y = w.top.y; r.z = w.top.z; r.hx = 1.1; r.hz = 1.1; r.angle = ahead;
   }
-  r.arc({ dDeg: 36, R: R0, rise: 0.3, hx: 1.8, hz: 1.6, band: 'medium', skin: isle(PAL.wheat) }); // landing island, offset from the wheel top so it doesn't overhang
+  r.arc({ dDeg: 34, R: R0, rise: 0.2, hx: 1.4, hz: 1.3, band: 'medium', skin: isle(PAL.wheat) }); // hop off the wheel top
   r.checkpoint('Windmill Heights', 2); dress(C.flag3);
   out.windmills.push({ x: r.x - Math.cos(r.angle) * 0.2, y: r.y + 2.0, z: r.z, rotY: r.angle + 1, scale: 0.5 });
 
-  // ════ DISTRICT 3 — THE WATERWORKS (y23 → ~34; waterfalls + a fast flume) ════
-  r.arc({ dDeg: 36, R: R0, rise: 2.0, hx: 1.4, hz: 1.4, band: 'medium', skin: isle(PAL.water) });
+  // ════ DISTRICT 3 — THE WATERWORKS (hard precise leaps + a fast WATER-LIFT) ════
+  r.arc({ dDeg: 46, R: R0, rise: 0.8, hx: 0.8, hz: 0.8, band: 'hard', skin: isle(PAL.water) }); // near the single-jump limit
   out.waterfalls.push({ x: r.x, y: r.y - 4, z: r.z + 0.2, w: 1.3, h: 9, rotY: 0 });
   out.waterwheels.push({ x: r.x + 1.6, y: r.y - 0.8, z: r.z, radius: 1.5, rotY: r.angle + Math.PI / 2 });
-  r.arc({ dDeg: 36, R: R0, rise: 2.0, hx: 1.3, hz: 1.3, band: 'medium', skin: isle(PAL.water) });
-  // a rising WATER-LIFT (a bubbling platform) — board it on the spiral, ride up
+  r.arc({ dDeg: 42, R: R0, rise: 1.2, hx: 0.8, hz: 0.8, band: 'hard', skin: isle(PAL.water) });
+  // a fast rising WATER-LIFT — board it on the spiral, ride up (tight window)
   {
-    const la = r.angle + (26 * Math.PI) / 180, lx = Math.cos(la) * R0, lz = Math.sin(la) * R0;
-    const llow = r.y - 0.1, lhigh = r.y + 4.6;
-    mover(out, { ax: lx, ay: llow, az: lz, bx: lx, by: lhigh, bz: lz, hx: 1.4, hy: 0.18, hz: 1.4, period: 5, color: C.water, style: 'lift' });
-    out.waterfalls.push({ x: lx, y: lhigh - 4, z: lz + 1.5, w: 1.2, h: 9, rotY: 0 });
-    r.link(lx, llow + 0.18, lz, 1.4, 1.4, 'medium', 'jump');
+    const la = r.angle + (24 * Math.PI) / 180, lx = Math.cos(la) * R0, lz = Math.sin(la) * R0;
+    const llow = r.y - 0.1, lhigh = r.y + 4.8;
+    mover(out, { ax: lx, ay: llow, az: lz, bx: lx, by: lhigh, bz: lz, hx: 1.2, hy: 0.18, hz: 1.2, period: 4, color: C.water, style: 'lift' });
+    out.waterfalls.push({ x: lx, y: lhigh - 4, z: lz + 1.4, w: 1.2, h: 9, rotY: 0 });
+    r.link(lx, llow + 0.18, lz, 1.2, 1.2, 'hard', 'jump');
     out.edges.push({ ax: lx, ay: llow + 0.18, az: lz, bx: lx, by: lhigh + 0.18, bz: lz, band: 'easy', kind: 'mover' });
-    r.x = lx; r.y = lhigh + 0.18; r.z = lz; r.hx = 1.4; r.hz = 1.4; r.angle = la;
+    r.x = lx; r.y = lhigh + 0.18; r.z = lz; r.hx = 1.2; r.hz = 1.2; r.angle = la;
   }
-  r.arc({ dDeg: 30, R: R0, rise: 1.4, hx: 1.9, hz: 1.7, band: 'medium', skin: isle(PAL.water) });
+  r.arc({ dDeg: 38, R: R0, rise: 1.2, hx: 1.5, hz: 1.4, band: 'hard', skin: isle(PAL.water) });
   r.checkpoint('The Waterworks', 3); dress(C.flag2, true);
 
-  // ════ DISTRICT 4 — THE NIGHT MARKET (y34 → ~45; CONVERGING CARGO CARTS) ════
-  r.arc({ dDeg: 34, R: R0, rise: 2.0, hx: 1.5, hz: 1.5, band: 'medium', skin: isle(PAL.market) });
+  // ════ DISTRICT 4 — THE NIGHT MARKET (CONVERGING CARGO CARTS + a daredevil double) ════
+  r.arc({ dDeg: 42, R: R0, rise: 1.2, hx: 1.3, hz: 1.3, band: 'hard', skin: isle(PAL.market) });
   // lantern-strung market island
   for (let i = 0; i < 3; i++) lantern(out, r.x + (i - 1) * 0.8, r.y, r.z - 0.6, 1.3);
   decoBox(out, r.x, r.y + 1.6, r.z, 1.4, 0.06, 1.0, C.roofCoral, { cast: false }); // awning
@@ -631,32 +657,36 @@ export function generateWorld(seed = 1337): WorldData {
     // cart A: near-side → just before mid ; cart B: far-side → just after mid.
     // Same period/phase → both reach the middle together (the "smash"); transfer
     // across the 2.6 m gap only in that window, or ride back and retry.
-    mover(out, { ax: nx + ux * 2.6, ay: ly, az: nz + uz * 2.6, bx: mx - ux * 1.3, by: ly, bz: mz - uz * 1.3, hx: 1.3, hy: 0.16, hz: 1.3, period: 5, color: C.woodLight, style: 'cart' });
-    mover(out, { ax: fx - ux * 2.6, ay: ly, az: fz - uz * 2.6, bx: mx + ux * 1.3, by: ly, bz: mz + uz * 1.3, hx: 1.3, hy: 0.16, hz: 1.3, period: 5, color: C.woodLight, style: 'cart' });
-    r.link(nx + ux * 2.6, ly + 0.16, nz + uz * 2.6, 1.3, 1.3, 'medium', 'jump');     // board cart A
+    mover(out, { ax: nx + ux * 2.6, ay: ly, az: nz + uz * 2.6, bx: mx - ux * 1.3, by: ly, bz: mz - uz * 1.3, hx: 1.2, hy: 0.16, hz: 1.2, period: 3.6, color: C.woodLight, style: 'cart' });
+    mover(out, { ax: fx - ux * 2.6, ay: ly, az: fz - uz * 2.6, bx: mx + ux * 1.3, by: ly, bz: mz + uz * 1.3, hx: 1.2, hy: 0.16, hz: 1.2, period: 3.6, color: C.woodLight, style: 'cart' });
+    r.link(nx + ux * 2.6, ly + 0.16, nz + uz * 2.6, 1.2, 1.2, 'hard', 'jump');     // board cart A
     out.edges.push({ ax: nx + ux * 2.6, ay: ly + 0.16, az: nz + uz * 2.6, bx: mx - ux * 1.3, by: ly + 0.16, bz: mz - uz * 1.3, band: 'easy', kind: 'mover' });
-    out.edges.push({ ax: mx - ux * 1.3, ay: ly + 0.16, az: mz - uz * 1.3, bx: mx + ux * 1.3, by: ly + 0.16, bz: mz + uz * 1.3, band: 'easy', kind: 'jump' }); // transfer A→B
+    out.edges.push({ ax: mx - ux * 1.3, ay: ly + 0.16, az: mz - uz * 1.3, bx: mx + ux * 1.3, by: ly + 0.16, bz: mz + uz * 1.3, band: 'medium', kind: 'jump' }); // transfer A→B
     out.edges.push({ ax: mx + ux * 1.3, ay: ly + 0.16, az: mz + uz * 1.3, bx: fx - ux * 2.6, by: ly + 0.16, bz: fz - uz * 2.6, band: 'easy', kind: 'mover' }); // ride B
-    out.edges.push({ ax: fx - ux * 2.6, ay: ly + 0.16, az: fz - uz * 2.6, bx: fx, by: fyTop, bz: fz, band: 'easy', kind: 'jump' }); // step onto far island
+    out.edges.push({ ax: fx - ux * 2.6, ay: ly + 0.16, az: fz - uz * 2.6, bx: fx, by: fyTop, bz: fz, band: 'medium', kind: 'jump' }); // step onto far island
+    // SHORTCUT: skip the whole cart dance with one huge double straight across the gap.
+    out.edges.push({ ax: nx, ay: ly - 0.5, az: nz, bx: fx, by: fyTop, bz: fz, band: 'double', kind: 'shortcut' });
     r.x = fx; r.y = fyTop; r.z = fz; r.hx = 1.8; r.hz = 1.6; r.angle = eAng;
   }
   r.checkpoint('Night Market', 4); dress(C.flag1, true);
   decoBox(out, r.x, r.y + 1.6, r.z - 0.4, 1.5, 0.06, 1.1, C.roofTeal, { cast: false }); // awning
 
-  // ════ DISTRICT 5 — ICE REACH (y45 → ~55; CRACKING ICE + crystals) ════
-  r.arc({ dDeg: 34, R: R0, rise: 2.0, hx: 1.4, hz: 1.4, band: 'medium', skin: isle(PAL.ice) });
-  // a dash across CRACKING ICE platforms — keep moving or drop
-  r.arc({ dDeg: 30, R: R0, rise: 1.8, hx: 1.2, hz: 1.2, band: 'medium', skin: ice });
-  r.arc({ dDeg: 30, R: R0, rise: 1.8, hx: 1.1, hz: 1.1, band: 'medium', skin: ice });
-  r.arc({ dDeg: 30, R: R0, rise: 1.8, hx: 1.2, hz: 1.2, band: 'medium', skin: ice });
-  r.arc({ dDeg: 32, R: R0, rise: 1.9, hx: 1.6, hz: 1.5, band: 'medium', skin: isle(PAL.ice) }); // solid landing
-  // a couple of crystal spires + icicles for vibe
+  // ════ DISTRICT 5 — ICE REACH (BRUTAL: tiny fast-cracking ice + a forced double) ════
+  r.arc({ dDeg: 38, R: R0, rise: 1.2, hx: 1.0, hz: 1.0, band: 'hard', skin: isle(PAL.ice) });
+  // a sprint across tiny CRACKING ICE — each cracks ~0.34 s after you land, so you
+  // can NOT stop. Small pads, near-limit gaps.
+  r.arc({ dDeg: 30, R: R0, rise: 0.8, hx: 0.7, hz: 0.7, band: 'hard', skin: ice });
+  r.arc({ dDeg: 30, R: R0, rise: 0.8, hx: 0.6, hz: 0.6, band: 'hard', skin: ice });
+  r.arc({ dDeg: 30, R: R0, rise: 0.8, hx: 0.6, hz: 0.6, band: 'hard', skin: ice });
+  r.arc({ dDeg: 30, R: R0, rise: 0.8, hx: 0.7, hz: 0.7, band: 'hard', skin: ice });
+  r.arc({ dDeg: 32, R: R0, rise: 1.4, hx: 1.4, hz: 1.3, band: 'hard', skin: isle(PAL.ice) }); // solid breather
   decoCone(out, r.x + 1.4, r.y + 0.9, r.z, 0.4, 1.6, C.crystalC, { segments: 6, emissive: C.crystalC, emissiveIntensity: 0.3, cast: false });
-  r.arc({ dDeg: 34, R: R0, rise: 2.0, hx: 1.0, hz: 1.0, band: 'medium', skin: crys(C.crystalC) });
-  r.arc({ dDeg: 36, R: R0, rise: 2.0, hx: 1.0, hz: 1.0, band: 'hard', skin: crys(C.crystalA) });
+  // a forced DOUBLE-JUMP across a big gap to a tiny crystal, then a hard leap
+  r.arc({ dDeg: 54, R: R0, rise: 2.6, hx: 0.85, hz: 0.85, band: 'double', skin: crys(C.crystalA) });
+  r.arc({ dDeg: 40, R: R0, rise: 1.2, hx: 0.8, hz: 0.8, band: 'hard', skin: crys(C.crystalC) });
 
-  // ════ SUMMIT — a beacon island at the peak's shoulder (y~55) ════
-  r.arc({ dDeg: 30, R: R0 - 2, rise: 2.0, hx: 2.4, hz: 2.4, band: 'medium', skin: isle({ top: '#eef4f8', side: '#b4bac2' }) });
+  // ════ SUMMIT — a beacon island at the peak's shoulder ════
+  r.arc({ dDeg: 30, R: R0 - 2, rise: 1.4, hx: 2.2, hz: 2.2, band: 'hard', skin: isle({ top: '#eef4f8', side: '#b4bac2' }) });
   const sX = r.x, sY = r.y, sZ = r.z;
   decoCyl(out, sX, sY + 0.5, sZ, 1.0, 1.0, C.crystalB, { segments: 8, emissive: C.crystalB, emissiveIntensity: 0.2, cast: false });
   decoCone(out, sX, sY + 1.6, sZ, 1.2, 1.2, C.crystalA, { segments: 8, emissive: C.crystalA, emissiveIntensity: 0.25, cast: false });
