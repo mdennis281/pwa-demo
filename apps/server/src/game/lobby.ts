@@ -5,6 +5,7 @@ import type {
   LobbyPlayer,
   Role,
 } from '@pwa-demo/shared';
+import { containsProfanity } from './profanity.js';
 
 // Duplicated from packages/shared because that package is consumed as raw
 // TS source; the compiled Node server can't import .ts at runtime. If you
@@ -87,7 +88,12 @@ const MAX_PLAYER_CAP = 1000;
 
 function sanitize(name: string, max: number, fallback: string): string {
   const trimmed = (name ?? '').toString().trim().slice(0, max);
-  return trimmed || fallback;
+  if (!trimmed) return fallback;
+  // Public-facing field: a profane name is dropped to the fallback so it never
+  // reaches another player's screen or the persisted leaderboard. The check is
+  // obfuscation-resistant (leetspeak / spacing / homoglyphs) — see profanity.ts.
+  if (containsProfanity(trimmed)) return fallback;
+  return trimmed;
 }
 
 function clampCap(n: number): number {
