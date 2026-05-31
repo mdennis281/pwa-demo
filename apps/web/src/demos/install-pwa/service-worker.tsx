@@ -116,30 +116,43 @@ function classifyCache(name: string): { bucket: string; version: string | null }
   return { bucket: 'other', version: null };
 }
 
+/** Run an async task over items with bounded concurrency. */
+async function mapLimit<T>(items: readonly T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) await fn(items[next++]);
+  });
+  await Promise.all(workers);
+}
+
 async function readCaches(): Promise<CacheInfo[]> {
   if (!('caches' in window)) return [];
   const names = await caches.keys();
-  const infos = await Promise.all(
-    names.map(async (name): Promise<CacheInfo> => {
-      const cache = await caches.open(name);
-      const reqs = await cache.keys();
-      let bytes = 0;
-      await Promise.all(
-        reqs.map(async (req) => {
-          const res = await cache.match(req);
-          if (!res) return;
-          try {
-            // Cached bodies are local — reading them back is cheap and gives a
-            // true byte count (content-length is often missing/opaque).
-            bytes += (await res.clone().arrayBuffer()).byteLength;
-          } catch {
-            /* opaque or already-consumed body — skip from the total */
-          }
-        }),
-      );
-      return { name, ...classifyCache(name), count: reqs.length, bytes };
-    }),
-  );
+  const infos: CacheInfo[] = [];
+  for (const name of names) {
+    const cache = await caches.open(name);
+    const reqs = await cache.keys();
+    let bytes = 0;
+    // Read bodies with BOUNDED concurrency. The previous Promise.all fired one
+    // arrayBuffer() read per entry all at once (130+ in flight); the browser
+    // dropped most of those reads, so the total came out a fraction of the real
+    // size and changed every run. A small pool reads every entry to completion
+    // while staying fast on local cache. (bytes += is safe — single-threaded,
+    // no interleaving inside a synchronous statement.)
+    await mapLimit(reqs, 8, async (req) => {
+      const res = await cache.match(req);
+      if (!res) return;
+      try {
+        bytes += (await res.arrayBuffer()).byteLength;
+      } catch {
+        // Unreadable (e.g. opaque cross-origin) body — fall back to the
+        // declared length so it still contributes something to the total.
+        const len = Number(res.headers.get('content-length'));
+        if (Number.isFinite(len)) bytes += len;
+      }
+    });
+    infos.push({ name, ...classifyCache(name), count: reqs.length, bytes });
+  }
   // precache first, then runtime, then by name
   const order: Record<string, number> = { precache: 0, assets: 1, api: 2, other: 3 };
   return infos.sort((a, b) => (order[a.bucket] - order[b.bucket]) || a.name.localeCompare(b.name));
