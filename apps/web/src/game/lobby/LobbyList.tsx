@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { isDedicatedLobbyId, type AuthStatus, type LobbyInfo, type LobbyResult, type Role, type TowerHighScore } from '@pwa-demo/shared';
+import { containsProfanity, isDedicatedLobbyId, type AuthStatus, type LobbyInfo, type LobbyResult, type Role, type TowerHighScore } from '@pwa-demo/shared';
 import { getSocket, hasAdminToken } from '../../lib/socket';
 import CharacterPicker from './CharacterPicker';
 import ServerAdminMenu, { ShieldIcon } from './ServerAdminMenu';
@@ -39,6 +39,14 @@ export default function LobbyList({
   // Dedicated servers may be turned off by an admin — Quick Play goes offline.
   const hasDedicated = lobbies.some((l) => isDedicatedLobbyId(l.id));
 
+  // Live profanity check — same logic the server enforces, mirrored in
+  // @pwa-demo/shared. Recomputed every render so the warning updates as the
+  // user types (the controlled inputs re-render on each keystroke). The
+  // server's nameError() remains the authoritative gate; this just blocks the
+  // doomed submit and shows *why* right next to the field.
+  const nameProfane = containsProfanity(name);
+  const lobbyNameProfane = containsProfanity(lobbyName);
+
   useEffect(() => {
     localStorage.setItem(NAME_KEY, name);
   }, [name]);
@@ -75,6 +83,7 @@ export default function LobbyList({
   }
 
   function handleCreate() {
+    if (nameProfane || lobbyNameProfane) return; // buttons are disabled; belt-and-suspenders
     setBusy(true);
     setError(null);
     getSocket().emit(
@@ -92,6 +101,7 @@ export default function LobbyList({
   }
 
   function handleJoin(id: string) {
+    if (nameProfane) return; // display name carries into the lobby — block it client-side too
     setBusy(true);
     setError(null);
     getSocket().emit(
@@ -109,6 +119,7 @@ export default function LobbyList({
   }
 
   function handleQuickPlay() {
+    if (nameProfane) return;
     setBusy(true);
     setError(null);
     getSocket().emit(
@@ -166,8 +177,16 @@ export default function LobbyList({
               value={name}
               maxLength={40}
               onChange={(e) => setName(e.target.value)}
-              className="block mt-1 w-64 bg-slate-950 border border-slate-700 rounded-md px-3 py-1.5"
+              aria-invalid={nameProfane}
+              className={`block mt-1 w-64 bg-slate-950 border rounded-md px-3 py-1.5 ${
+                nameProfane ? 'border-rose-500 focus:border-rose-400' : 'border-slate-700'
+              }`}
             />
+            {nameProfane && (
+              <span className="block mt-1 text-xs text-rose-300">
+                That name isn’t allowed — please choose another.
+              </span>
+            )}
           </label>
         </div>
         <CharacterPicker value={character} onChange={setCharacter} />
@@ -207,7 +226,7 @@ export default function LobbyList({
             <button
               type="button"
               onClick={handleQuickPlay}
-              disabled={busy}
+              disabled={busy || nameProfane}
               className="px-5 py-2.5 rounded-md bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-sm disabled:opacity-50 shadow-md"
             >
               {busy ? 'joining…' : 'Quick Play →'}
@@ -237,8 +256,16 @@ export default function LobbyList({
                 maxLength={40}
                 placeholder={`${safeName()}'s lobby`}
                 onChange={(e) => setLobbyName(e.target.value)}
-                className="block mt-1 w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-1.5"
+                aria-invalid={lobbyNameProfane}
+                className={`block mt-1 w-full bg-slate-950 border rounded-md px-3 py-1.5 ${
+                  lobbyNameProfane ? 'border-rose-500 focus:border-rose-400' : 'border-slate-700'
+                }`}
               />
+              {lobbyNameProfane && (
+                <span className="block mt-1 text-xs text-rose-300">
+                  That lobby name isn’t allowed — please choose another.
+                </span>
+              )}
             </label>
             <fieldset>
               <legend className="text-xs text-slate-400 mb-1">join as</legend>
@@ -250,7 +277,7 @@ export default function LobbyList({
             <button
               type="button"
               onClick={handleCreate}
-              disabled={busy}
+              disabled={busy || nameProfane || lobbyNameProfane}
               className="px-4 py-2 rounded-md bg-brand-500 hover:bg-brand-400 text-slate-950 font-medium text-sm disabled:opacity-50"
             >
               {busy ? 'creating…' : 'Create lobby'}
@@ -274,7 +301,7 @@ export default function LobbyList({
                   key={l.id}
                   type="button"
                   onClick={() => (official ? handleQuickPlay() : handleJoin(l.id))}
-                  disabled={busy || l.playerCount >= l.maxPlayers}
+                  disabled={busy || nameProfane || l.playerCount >= l.maxPlayers}
                   className={`rounded-lg p-3 text-left transition disabled:opacity-50 ${
                     official
                       ? 'bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/40'

@@ -198,6 +198,12 @@ export function isDedicatedLobbyId(id: string): boolean {
   return id === OFFICIAL_LOBBY_ID || id.startsWith(`${OFFICIAL_LOBBY_ID}-`);
 }
 
+/** Obfuscation-resistant profanity check for public-facing names. Re-exported
+ *  here so the client can warn live as the user types; the server has its own
+ *  byte-identical copy (it can't import this at runtime — raw-TS package). The
+ *  server's nameError() is the authoritative gate. See profanity.ts. */
+export { containsProfanity } from './profanity.js';
+
 export type TowerHighScore = {
   displayName: string;
   character: number;
