@@ -22,7 +22,7 @@ import { useMouseLook } from './controls/useMouseLook';
 import { input } from './controls/input';
 import type { AuthStatus, GameSnapshot, DecodedSnapshot, PlayerSnapshot, LocalInput, LobbyState, Role } from '@pwa-demo/shared';
 import { PLAYER_STATES } from '@pwa-demo/shared';
-import { getSocket } from '../lib/socket';
+import { getSocket, hasAdminToken } from '../lib/socket';
 
 /** Kick off shader compilation for every material in the scene up-front.
  *  Without this, Three.js compiles each material lazily on its first draw
@@ -110,7 +110,12 @@ export default function GameCanvas({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [perfOpen, setPerfOpen] = useState(false);
   const [networkOpen, setNetworkOpen] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
+  // Optimistic from a persisted admin token (the socket auto-re-elevates on
+  // connect — see lib/socket). Without this seed the in-game menu stayed hidden:
+  // auth:status fires on the lobby screen, BEFORE this component mounts, so its
+  // listener below never saw it and isAdmin was stuck false in-game. auth:status
+  // still corrects it authoritatively if the token turns out invalid.
+  const [isAdmin, setIsAdmin] = useState(hasAdminToken);
   const [myPing, setMyPing] = useState<number | null>(null);
   const [snapshotCount, setSnapshotCount] = useState(0);
   const [summitReached, setSummitReached] = useState(false);
@@ -129,6 +134,13 @@ export default function GameCanvas({
   const isHost = lobby.hostId === selfId;
   const canAdmin = isHost || isAdmin;
   const paused = lobby.paused ?? false;
+
+  // Self's role can change live — an admin (or the host) can flip anyone
+  // between player and spectator from the admin menu, which lands as a
+  // lobby:state update. Derive it from the live roster (keyed by the stable
+  // clientId, robust across reconnects) instead of the join-time `role` prop,
+  // so the switch takes effect immediately without leaving the lobby.
+  const liveRole: Role = lobby.players.find((p) => p.clientId === selfClientId)?.role ?? role;
 
   // Server tells us what privileges the handshake earned — single source of
   // truth, beats trusting localStorage alone.
@@ -334,7 +346,7 @@ export default function GameCanvas({
           <World data={world} />
           <ShadowController enabled={shadowsOn} />
           {perfOpen && <RenderStatsCollector />}
-          {role === 'player' ? (
+          {liveRole === 'player' ? (
             <Player
               variant={variant}
               boxes={world.boxes}
@@ -380,7 +392,7 @@ export default function GameCanvas({
         selfId={selfId}
         pointerLocked={locked}
         jumpsUsed={jumpsUsed}
-        isPlayer={role === 'player'}
+        isPlayer={liveRole === 'player'}
         zones={world.zones}
         summitY={world.summitY}
         flying={flying}
@@ -510,7 +522,7 @@ export default function GameCanvas({
       {!locked && !isTouch && !paused && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30">
           <div className="bg-slate-950/80 backdrop-blur border border-slate-700 rounded-lg px-4 py-3 text-center text-slate-300 text-sm max-w-sm">
-            {role === 'player'
+            {liveRole === 'player'
               ? 'click anywhere to capture mouse — climb to the summit beacon!'
               : 'click anywhere to capture mouse — spectator mode, WASD to fly'}
           </div>

@@ -130,7 +130,11 @@ export type LobbyResult =
 export type AdminAction =
   | { type: 'kick'; targetId: string }
   | { type: 'pause'; paused: boolean }
-  | { type: 'config'; maxPlayers?: number; name?: string };
+  | { type: 'config'; maxPlayers?: number; name?: string }
+  /** Move a player between player and spectator. Host- or admin-gated like the
+   *  other actions; `targetId` may be the caller's own socket id (so an admin
+   *  can drop themselves to free-cam without leaving the lobby). */
+  | { type: 'role'; targetId: string; role: Role };
 
 export type AdminResult = { ok: true } | { ok: false; error: string };
 

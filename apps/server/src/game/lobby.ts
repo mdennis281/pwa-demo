@@ -422,6 +422,26 @@ export function kickPlayer(
   return { ok: true, lobbyId: lobby.id };
 }
 
+/** Move a player between 'player' and 'spectator'. Host- or admin-gated like
+ *  kickPlayer; the target may be the caller themselves (an admin dropping to
+ *  free-cam). Dropping to spectator zeroes their live velocity-ish state isn't
+ *  needed — updateInput already ignores non-players, so their avatar simply
+ *  freezes and is filtered out client-side. */
+export function setRole(
+  hostSocketId: string,
+  targetSocketId: string,
+  role: Role,
+  isAdmin = false,
+): { ok: true; lobbyId: string } | { ok: false; error: string } {
+  const lobby = getLobbyOf(hostSocketId);
+  if (!lobby) return { ok: false, error: 'not in a lobby' };
+  if (!isAdmin && lobby.hostId !== hostSocketId) return { ok: false, error: 'not the host' };
+  const target = lobby.players.get(targetSocketId);
+  if (!target) return { ok: false, error: 'player not found' };
+  target.role = role;
+  return { ok: true, lobbyId: lobby.id };
+}
+
 export function setPaused(
   hostSocketId: string,
   paused: boolean,

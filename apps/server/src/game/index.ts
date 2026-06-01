@@ -18,6 +18,7 @@ import {
   pickQuickJoinLobby,
   reconcileDedicatedLobbies,
   setPaused,
+  setRole,
   updateInput,
   updateLobbyConfig,
 } from './lobby.js';
@@ -351,6 +352,13 @@ export function attachGame(
       if (!result.ok) { cb({ ok: false, error: result.error }); return; }
       broadcastLobbyState(io, result.lobby.id);
       broadcastBrowser(io);
+      cb({ ok: true });
+    } else if (action.type === 'role') {
+      const result = setRole(socket.id, action.targetId, action.role, isAdmin);
+      if (!result.ok) { cb({ ok: false, error: result.error }); return; }
+      // Role lives in lobby:state (not the browser list), so just refresh the
+      // room — every client recomputes player-vs-spectator from it.
+      broadcastLobbyState(io, result.lobbyId);
       cb({ ok: true });
     } else {
       cb({ ok: false, error: 'unknown action' });

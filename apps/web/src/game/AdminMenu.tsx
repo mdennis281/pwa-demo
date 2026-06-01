@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { LobbyState, AdminResult } from '@pwa-demo/shared';
+import type { LobbyState, AdminResult, AdminAction, Role } from '@pwa-demo/shared';
 import { getSocket } from '../lib/socket';
 
 export default function AdminMenu({
@@ -31,7 +31,7 @@ export default function AdminMenu({
 
   if (!open) return null;
 
-  function doAction(payload: { type: 'kick'; targetId: string } | { type: 'pause'; paused: boolean } | { type: 'config'; maxPlayers?: number; name?: string }) {
+  function doAction(payload: AdminAction) {
     getSocket().emit('admin:action', payload, (res: AdminResult) => {
       if (!res.ok) setMsg(`Error: ${res.error}`);
     });
@@ -52,6 +52,10 @@ export default function AdminMenu({
 
   function handleKick(targetId: string) {
     doAction({ type: 'kick', targetId });
+  }
+
+  function handleRole(targetId: string, role: Role) {
+    doAction({ type: 'role', targetId, role });
   }
 
   function handlePause() {
@@ -152,9 +156,20 @@ export default function AdminMenu({
                       {p.displayName}
                     </span>
                     {isSelf && <span className="text-slate-500 text-xs ml-1">(you)</span>}
+                    {p.role === 'spectator' && (
+                      <span className="text-sky-400/80 text-[10px] uppercase tracking-wider ml-1">spectator</span>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <PingBadge ping={ping ?? null} />
+                    <button
+                      type="button"
+                      onClick={() => handleRole(p.id, p.role === 'spectator' ? 'player' : 'spectator')}
+                      title={p.role === 'spectator' ? 'Make active player' : 'Move to spectator (free-cam)'}
+                      className="text-sky-300 hover:text-sky-200 text-xs px-2 py-0.5 rounded border border-sky-500/30 hover:border-sky-400/50 transition"
+                    >
+                      {p.role === 'spectator' ? 'make player' : 'spectate'}
+                    </button>
                     {!isSelf && (
                       <button
                         type="button"
