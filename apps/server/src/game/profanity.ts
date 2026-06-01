@@ -39,7 +39,11 @@ const CHAR_MAP: Record<string, string> = {
   'т': 't', 'в': 'b', 'ѕ': 's', 'і': 'i', 'ј': 'j', 'ԁ': 'd', 'ո': 'n', 'г': 'r', 'л': 'l', 'и': 'u',
   // Greek look-alikes
   'α': 'a', 'β': 'b', 'ε': 'e', 'ι': 'i', 'κ': 'k', 'ο': 'o', 'ρ': 'p', 'τ': 't', 'υ': 'u', 'χ': 'x',
-  'ν': 'v', 'γ': 'y', 'σ': 'o', 'ϲ': 'c', 'ωϊ': 'w',
+  'ν': 'v', 'γ': 'y', 'σ': 'o', 'ϲ': 'c',
+  // small-capital letters (Latin SC + IPA block) — NFKD leaves these unfolded
+  'ᴀ': 'a', 'ʙ': 'b', 'ᴄ': 'c', 'ᴅ': 'd', 'ᴇ': 'e', 'ꜰ': 'f', 'ɢ': 'g', 'ʜ': 'h', 'ɪ': 'i',
+  'ᴊ': 'j', 'ᴋ': 'k', 'ʟ': 'l', 'ᴍ': 'm', 'ɴ': 'n', 'ᴏ': 'o', 'ᴘ': 'p', 'ꞯ': 'q', 'ʀ': 'r',
+  'ꜱ': 's', 'ᴛ': 't', 'ᴜ': 'u', 'ᴠ': 'v', 'ᴡ': 'w', 'ʏ': 'y', 'ᴢ': 'z',
 };
 
 /** Collapse any string to bare a–z: NFKD + lowercase, leet/homoglyph folding,
@@ -71,34 +75,37 @@ function repeatPattern(word: string): RegExp {
 // form is needed for stretched/leeted inputs.
 const BANNED_WORDS: string[] = [
   // general obscenity
-  'fuck', 'fuk', 'fuq', 'fck', 'fcuk', 'fux', 'phuck', 'fucker', 'motherfucker', 'mofo', 'fuckface', 'clusterfuck',
-  'shit', 'shite', 'bullshit', 'shitface', 'dipshit', 'shithead',
-  'bitch', 'biatch', 'beotch', 'sonofabitch',
-  'cunt', 'kunt',
-  'pussy', 'pussie',
+  'fuck', 'fuk', 'fuq', 'fck', 'fcuk', 'fux', 'fvck', 'fock', 'fok', 'fawk',
+  'phuck', 'phuk', 'fucker', 'motherfucker', 'mofo', 'fuckface', 'clusterfuck',
+  'shit', 'shyt', 'shite', 'bullshit', 'shitface', 'dipshit', 'shithead',
+  'bitch', 'biatch', 'biotch', 'beotch', 'btch', 'sonofabitch',
+  'cunt', 'kunt', 'cnut', 'kvnt', 'cvnt',
+  'pussy', 'pussie', 'pussi',
   'cock', 'kock', 'cockhead', 'cocksucker',
   'dick', 'dik', 'dickhead', 'dickwad',
   'penis', 'vagina', 'boob', 'tits', 'titty', 'titties', 'nipple',
   'ass', 'azz', 'asshole', 'asshat', 'arse', 'arsehole', 'jackass', 'dumbass',
-  'anal', 'anus', 'butthole', 'rectum',
+  'anal', 'butthole', 'rectum',
   'cum', 'jizz', 'jism', 'spunk', 'semen',
-  'sex', 'sexy', 'creampie', 'blowjob', 'handjob', 'rimjob', 'deepthroat',
-  'slut', 'whore', 'skank', 'thot',
-  'bastard', 'piss', 'pissed', 'wank', 'wanker', 'tosser', 'bollock', 'bollocks', 'bugger',
+  'sex', 'sexy', 'secks', 'creampie', 'blowjob', 'handjob', 'rimjob', 'deepthroat',
+  'slut', 'slvt', 'sloot', 'whore', 'skank', 'thot',
+  'bastard', 'bastid', 'basterd', 'piss', 'pissed', 'wank', 'wanker', 'tosser', 'bollock', 'bollocks', 'bugger',
   'dildo', 'boner', 'horny', 'milf', 'gilf', 'bukkake', 'hentai', 'fap',
   'douche', 'douchebag', 'prick', 'twat', 'minge', 'fanny', 'knob',
-  'porn', 'pornhub', 'xxx', 'nsfw', 'masturbate', 'orgasm', 'ejaculate',
-  'rape', 'rapist', 'molest', 'pedo', 'pedophile', 'paedophile',
+  'porn', 'pornhub', 'masturbate', 'orgasm', 'ejaculate',
+  'rape', 'raep', 'raype', 'rapist', 'molest', 'pedo', 'pedophile', 'paedophile',
   // slurs — racial / ethnic / religious
-  'nigger', 'nigga', 'nigg', 'niglet', 'chink', 'gook', 'kike', 'spic', 'spick',
+  'nigger', 'nigga', 'niqqa', 'niqqer', 'nigg', 'niglet', 'chink', 'gook', 'kike', 'spic', 'spick',
   'wetback', 'beaner', 'coon', 'wop', 'towelhead', 'raghead', 'sandnigger',
   'paki', 'jap', 'gyppo',
   // slurs — homophobic / transphobic
-  'faggot', 'fag', 'faggit', 'dyke', 'tranny', 'shemale', 'homo', 'queer',
+  'faggot', 'phaggot', 'fag', 'faggit', 'dyke', 'tranny', 'shemale', 'homo', 'queer',
   // slurs — ableist
   'retard', 'retarded', 'spastic', 'mongoloid', 'cripple',
   // hate / extremism
   'nazi', 'kkk', 'heil', 'whitepower',
+  // Chevron
+  'Bill B', 'Mike W', 'Lauren F'
 ];
 
 // ALLOW holds innocent words that contain a banned run; a banned hit is ignored
@@ -164,6 +171,33 @@ const ALLOW_WORDS: string[] = [
   'horny',
   // …crack / honky
   'cracker', 'crackers', 'firecracker', 'nutcracker', 'honk', 'honked', 'donkey', 'monkey',
+  // ── extra coverage surfaced by red-teaming (names, places, dictionary words) ──
+  // …ass
+  'hassan', 'nassau', 'assisi', 'assen', 'assata', 'cassondra', 'crevasse', 'demitasse', 'assuage',
+  'assail', 'assailant', 'picasso', 'cassiopeia', 'wasserman', 'assam', 'kassel', 'tassel', 'morass',
+  'sassafras', 'lassie', 'lasso', 'vassal', 'bassoon', 'bassinet', 'assyrian', 'cassava',
+  // …cock (surnames, places, birds — '-cock' is a common English surname suffix)
+  'alcock', 'adcock', 'laycock', 'pocock', 'wilcock', 'glasscock', 'hitchcock', 'cockayne',
+  'cockermouth', 'cockfosters', 'cockenzie', 'cockatoo', 'cockatiel', 'cockade', 'cockamamie',
+  'gamecock', 'stopcock', 'petcock', 'weathercock', 'silcock', 'maycock', 'spatchcock',
+  // …dick
+  'dickerson', 'dicker', 'dickie', 'dickies', 'riddick', 'dicky',
+  // …cum (note: 'vacuum' folds to c-u-u-m and would otherwise hit 'cum')
+  'cumbria', 'cumnock', 'cumberbatch', 'slocum', 'circumvent', 'circumcision', 'circumference',
+  'circumnavigate', 'circumspect', 'cumquat', 'kumquat', 'locum', 'modicum', 'vacuum', 'vacuums',
+  'cumulonimbus',
+  // …anal / anus
+  'analiese', 'analise', 'annalise', 'anneliese', 'analavory', 'kanal', 'analgesic', 'analogous',
+  'anusha', 'anushka',
+  // …sex
+  'sextus', 'sexsmith', 'intersex', 'sexmoan', 'sexagesimal', 'transsexual', 'sexology',
+  // …rape
+  'therapeutic', 'therapeutics', 'serape', 'drapery', 'scraper', 'scrapie',
+  // …coon / gook / jap / nigg / spic / twat (note: 'lightwater' folds to …t-w-a-t…)
+  'coonan', 'cooney', 'gookin', 'japonica', 'japheth', 'niggle', 'niggling', 'schnigger',
+  'spicoli', 'spica', 'lightwater', 'twatling',
+  // …guy fawkes / phuket (would otherwise hit the 'fawk' / 'phuk' variants)
+  'fawkes', 'phuket',
 ];
 
 // Pre-compile. ALLOW excludes any word that is ITSELF banned (e.g. 'scum',

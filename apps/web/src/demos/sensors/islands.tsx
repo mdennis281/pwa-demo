@@ -104,6 +104,12 @@ function IslandsInner() {
   // Step detector internals — kept in refs so we don't bust them on render.
   const stepCtx = useRef({ lastStepAt: 0, prevAbove: false });
 
+  // Flips true once any sensor event arrives. If permission is "granted" but
+  // nothing fires, the browser is blocking the sensors as anti-fingerprinting
+  // (Brave does this by default) — surface that instead of a frozen camera.
+  const gotEvent = useRef(false);
+  const [blocked, setBlocked] = useState(false);
+
   async function requestPerm() {
     setErr(null);
     setPerm('requesting');
@@ -137,6 +143,7 @@ function IslandsInner() {
     const s = sensor.current;
 
     function onOrientation(e: DeviceOrientationEvent) {
+      gotEvent.current = true;
       // alpha: compass-ish, 0..360, "yaw" rotating around vertical.
       // beta: -180..180, front-back tilt (we use as pitch).
       // Calibrate alpha to whatever direction the user was facing on first event.
@@ -157,6 +164,7 @@ function IslandsInner() {
     }
 
     function onMotion(e: DeviceMotionEvent) {
+      gotEvent.current = true;
       // iOS provides linear acceleration (gravity removed) on .acceleration;
       // Android variants populate accelerationIncludingGravity. Prefer linear,
       // fall back and crudely subtract ~9.8 from magnitude if needed.
@@ -189,6 +197,13 @@ function IslandsInner() {
 
     window.addEventListener('deviceorientation', onOrientation);
     window.addEventListener('devicemotion', onMotion);
+
+    gotEvent.current = false;
+    setBlocked(false);
+    const blockTimer = window.setTimeout(() => {
+      if (!gotEvent.current) setBlocked(true);
+    }, 2500);
+
     // 4Hz HUD sampler — cheap re-render driver for the labels.
     const hudId = window.setInterval(() => {
       setHud({
@@ -201,6 +216,7 @@ function IslandsInner() {
       window.removeEventListener('deviceorientation', onOrientation);
       window.removeEventListener('devicemotion', onMotion);
       window.clearInterval(hudId);
+      window.clearTimeout(blockTimer);
     };
   }, [perm]);
 
@@ -262,6 +278,20 @@ function IslandsInner() {
         onRecalibrate={recalibrate}
         onBack={goBack}
       />
+
+      {blocked && (
+        <div
+          className="absolute inset-x-0 top-0 z-20 flex justify-center px-4"
+          style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 4.5rem)' }}
+        >
+          <div className="pointer-events-auto max-w-sm bg-slate-950/85 backdrop-blur border border-amber-500/40 rounded-lg px-4 py-3 text-amber-200 text-xs leading-relaxed">
+            No sensor data arriving. Some browsers — notably{' '}
+            <span className="font-medium text-amber-100">Brave</span> — block motion &amp; orientation
+            sensors as an anti-fingerprinting measure. Lower Shields for this site (tap the lion icon)
+            and reload. On desktop these sensors return nothing — open on a phone.
+          </div>
+        </div>
+      )}
     </div>
   );
 }

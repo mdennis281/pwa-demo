@@ -88,12 +88,25 @@ const MAX_PLAYER_CAP = 1000;
 
 function sanitize(name: string, max: number, fallback: string): string {
   const trimmed = (name ?? '').toString().trim().slice(0, max);
-  if (!trimmed) return fallback;
-  // Public-facing field: a profane name is dropped to the fallback so it never
-  // reaches another player's screen or the persisted leaderboard. The check is
-  // obfuscation-resistant (leetspeak / spacing / homoglyphs) — see profanity.ts.
-  if (containsProfanity(trimmed)) return fallback;
-  return trimmed;
+  return trimmed || fallback;
+}
+
+/** Input-validation gate for a public-facing free-text field (a player display
+ *  name or a lobby/server name). Returns a user-facing error string when the
+ *  value contains profanity, or null when it's acceptable. Empty/whitespace is
+ *  fine here — it falls back to a system-generated default in sanitize(). The
+ *  trim/cap mirrors sanitize() so the check runs on the exact text that would be
+ *  stored, and the profanity check is obfuscation-resistant (leetspeak /
+ *  spacing / homoglyphs) — see profanity.ts. Profanity now BLOCKS the
+ *  create/join/rename (input validation) instead of being silently rewritten to
+ *  the fallback, so it never reaches another player's screen or the persisted
+ *  leaderboard and the user is told to choose a clean name. */
+function nameError(value: string, max: number, label: string): string | null {
+  const trimmed = (value ?? '').toString().trim().slice(0, max);
+  if (trimmed && containsProfanity(trimmed)) {
+    return `${label} contains inappropriate language — please choose another.`;
+  }
+  return null;
 }
 
 function clampCap(n: number): number {
@@ -194,7 +207,15 @@ export function createLobby(opts: {
   character: number;
   role: Role;
   isBot?: boolean;
-}): Lobby {
+}): { ok: true; lobby: Lobby } | { ok: false; error: string } {
+  // Validate the two public free-text fields first: a profane display name or
+  // lobby name blocks creation outright (input validation) rather than being
+  // silently rewritten to a fallback.
+  const err =
+    nameError(opts.displayName, MAX_NAME, 'Display name') ??
+    nameError(opts.name, MAX_LOBBY_NAME, 'Lobby name');
+  if (err) return { ok: false, error: err };
+
   const id = randomBytes(4).toString('hex');
   const hostName = sanitize(opts.displayName, MAX_NAME, 'Host');
   const lobby: Lobby = {
@@ -225,7 +246,7 @@ export function createLobby(opts: {
   });
   lobbies.set(id, lobby);
   playerLobby.set(opts.socketId, id);
-  return lobby;
+  return { ok: true, lobby };
 }
 
 export function joinLobby(opts: {
@@ -238,6 +259,11 @@ export function joinLobby(opts: {
 }): { ok: true; lobby: Lobby } | { ok: false; error: string } {
   const lobby = lobbies.get(opts.lobbyId);
   if (!lobby) return { ok: false, error: 'lobby not found' };
+
+  // A profane display name blocks the join (input validation), mirroring
+  // createLobby. Checked before any state mutation so a rejected join is inert.
+  const err = nameError(opts.displayName, MAX_NAME, 'Display name');
+  if (err) return { ok: false, error: err };
 
   // Reconnect reconciliation: Socket.IO hands a reconnecting client a brand-new
   // socket id, so re-joining would otherwise leave the player's PRIOR record
@@ -417,6 +443,10 @@ export function updateLobbyConfig(
   if (!lobby) return { ok: false, error: 'not in a lobby' };
   if (!isAdmin && lobby.hostId !== hostSocketId) return { ok: false, error: 'not the host' };
   if (opts.name !== undefined) {
+    // A profane rename is rejected (input validation), same as create/join,
+    // rather than being silently reverted to the old name.
+    const err = nameError(opts.name, MAX_LOBBY_NAME, 'Lobby name');
+    if (err) return { ok: false, error: err };
     lobby.name = sanitize(opts.name, MAX_LOBBY_NAME, lobby.name);
   }
   if (opts.maxPlayers !== undefined) {

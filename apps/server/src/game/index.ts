@@ -231,7 +231,7 @@ export function attachGame(
       const r = await handleLeave(io, socket.id);
       if (r) broadcastLobbyState(io, r.lobbyId);
     }
-    const lobby = createLobby({
+    const result = createLobby({
       socketId: socket.id,
       clientId: socket.data.clientId ?? socket.id,
       name: opts.name,
@@ -240,6 +240,13 @@ export function attachGame(
       role: opts.role,
       isBot: socket.data.isBot === true,
     });
+    // A profane display/lobby name is rejected here (input validation) — the
+    // client surfaces res.error and keeps the user on the lobby browser.
+    if (!result.ok) {
+      cb({ ok: false, error: result.error });
+      return;
+    }
+    const lobby = result.lobby;
     socket.join(lobbyRoom(lobby.id));
     cb({ ok: true, lobby: lobbyToState(lobby) });
     broadcastLobbyState(io, lobby.id);

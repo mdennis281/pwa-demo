@@ -32,6 +32,7 @@ type View = { cont: number; heading: number; alpha: number; beta: number; gamma:
 export default function OrientationDemo() {
   const [running, setRunning] = useState(false);
   const [denied, setDenied] = useState(false);
+  const [stalled, setStalled] = useState(false);
   const [view, setView] = useState<View>({ cont: 0, heading: 0, alpha: 0, beta: 0, gamma: 0, hasData: false });
 
   const raw = useRef({ heading: 0, alpha: 0, beta: 0, gamma: 0, hasData: false });
@@ -66,6 +67,14 @@ export default function OrientationDemo() {
     const evt = 'ondeviceorientationabsolute' in window ? 'deviceorientationabsolute' : 'deviceorientation';
     window.addEventListener(evt, onOrient as EventListener);
 
+    // Permission "granted" but no events arriving is the signature of a browser
+    // that blocks the sensor as anti-fingerprinting — Brave does this by default
+    // (the DeviceOrientationEvent constructor still exists, so the demo reads as
+    // "supported", but the event never fires). Flag it so we can say so.
+    const blockTimer = window.setTimeout(() => {
+      if (!raw.current.hasData) setStalled(true);
+    }, 2000);
+
     let rafId = 0;
     const tick = () => {
       const r = raw.current;
@@ -91,6 +100,7 @@ export default function OrientationDemo() {
     return () => {
       window.removeEventListener(evt, onOrient as EventListener);
       cancelAnimationFrame(rafId);
+      window.clearTimeout(blockTimer);
     };
   }, [running]);
 
@@ -119,9 +129,18 @@ export default function OrientationDemo() {
   return (
     <div className="space-y-6">
       {!view.hasData && (
-        <p className="text-xs text-amber-300 border border-amber-500/30 bg-amber-500/10 rounded px-3 py-2">
-          Waiting for sensor data… if nothing moves, this device has no orientation sensor — open the demo on a phone.
-        </p>
+        stalled ? (
+          <p className="text-xs text-amber-300 border border-amber-500/30 bg-amber-500/10 rounded px-3 py-2 leading-relaxed">
+            No sensor data arriving. Some browsers — notably{' '}
+            <span className="font-medium text-amber-200">Brave</span> — block motion &amp; orientation
+            sensors as an anti-fingerprinting measure: lower Shields for this site (tap the lion icon)
+            and reload. On a desktop these sensors return nothing — open the demo on a phone.
+          </p>
+        ) : (
+          <p className="text-xs text-amber-300 border border-amber-500/30 bg-amber-500/10 rounded px-3 py-2">
+            Waiting for sensor data… move your phone to wake the compass.
+          </p>
+        )
       )}
 
       <div className="flex flex-col items-center gap-8 sm:flex-row sm:items-start sm:justify-center sm:gap-10">
