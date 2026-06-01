@@ -190,7 +190,11 @@ export default function Player({
 
     // ── FLY — bypass physics and move freely (dev cheat OR earned reward) ──
     if (fly.active) {
-      const yaw = input.yaw;
+      // Advance the camera orbit angles first so flight moves relative to the
+      // on-screen view, not the raw (un-smoothed) mouse yaw — same reasoning as
+      // the grounded path below.
+      rateClampAngles(s, input.yaw, input.pitch, cdt);
+      const yaw = s.camYaw;
       const fwdX = -Math.sin(yaw), fwdZ = -Math.cos(yaw);
       const rightX = Math.cos(yaw), rightZ = -Math.sin(yaw);
       const moveX = rightX * input.right + fwdX * input.forward;
@@ -228,8 +232,8 @@ export default function Player({
       }
       s.state = mag > 0.05 ? 'run' : 'idle';
 
-      // camera follow (same as normal)
-      rateClampAngles(s, input.yaw, input.pitch, cdt);
+      // camera follow (same as normal). Angles already advanced at the top of
+      // this frame, so reuse them rather than stepping twice.
       const dirX = Math.sin(s.camYaw) * Math.cos(s.camPitch);
       const dirY = -Math.sin(s.camPitch);
       const dirZ = Math.cos(s.camYaw) * Math.cos(s.camPitch);
@@ -248,8 +252,18 @@ export default function Player({
       return;
     }
 
+    // ── camera orbit angles FIRST, so movement uses the SAME yaw the camera
+    // renders. Movement used to read the raw input.yaw, but the camera yaw is
+    // rate-clamped (and the mouse delta is capped — see useMouseLook) to absorb
+    // the sign-flipped / oversized movementX values Chromium emits on fast
+    // motion and right after pointer lock. Reading the un-smoothed input.yaw
+    // meant "forward" could jerk away from what was actually on screen, so
+    // pressing W walked you sideways. Driving movement from the smoothed camYaw
+    // locks forward to the view.
+    rateClampAngles(s, input.yaw, input.pitch, cdt);
+
     // ── direction from input + camera yaw ──
-    const yaw = input.yaw;
+    const yaw = s.camYaw;
     const fwdX = -Math.sin(yaw), fwdZ = -Math.cos(yaw);
     const rightX = Math.cos(yaw), rightZ = -Math.sin(yaw);
     const moveX = rightX * input.right + fwdX * input.forward;
@@ -443,11 +457,11 @@ export default function Player({
     s.state = !s.grounded ? 'air' : mag > 0.05 ? 'run' : 'idle';
 
     // ── third-person follow camera with occlusion raycast ──
-    // Rate-clamp camera yaw/pitch toward input. Below the threshold the camera
-    // tracks the mouse 1:1 (no lag). Above it, the camera arcs around the
-    // orbit ring at the clamped angular speed — never chord-cutting through
-    // the player on a fast flick.
-    rateClampAngles(s, input.yaw, input.pitch, cdt);
+    // Camera yaw/pitch were rate-clamped toward input at the TOP of this frame
+    // (so movement and the rendered view share one basis); reuse them here
+    // rather than stepping twice. Below the angular-speed threshold the camera
+    // tracks the mouse 1:1 (no lag); above it, it arcs around the orbit ring at
+    // the clamped speed — never chord-cutting through the player on a fast flick.
     const dirX = Math.sin(s.camYaw) * Math.cos(s.camPitch);
     const dirY = -Math.sin(s.camPitch);
     const dirZ = Math.cos(s.camYaw) * Math.cos(s.camPitch);

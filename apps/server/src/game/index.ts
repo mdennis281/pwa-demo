@@ -23,6 +23,7 @@ import {
 } from './lobby.js';
 import { serverMetrics } from '../metrics.js';
 import {
+  clearTowerHighScores,
   ensureTowerScoresTable,
   recordTowerHighScore,
   topTowerHighScores,
@@ -375,6 +376,23 @@ export function attachGame(
     const config = await saveServerConfig(patch ?? {});
     applyReconcile(io, reconcileDedicatedLobbies(config));
     cb({ ok: true, config });
+  });
+
+  // Wipe the persistent Tower leaderboard — admin only, irreversible. After the
+  // truncate we rebroadcast the (now-empty) top-N so every open lobby browser
+  // updates without a reconnect, same as a score write would.
+  socket.on('admin:clear-leaderboard', async (cb) => {
+    if (socket.data.isAdmin !== true) {
+      cb({ ok: false, error: 'not authorized' });
+      return;
+    }
+    const ok = await clearTowerHighScores();
+    if (!ok) {
+      cb({ ok: false, error: 'leaderboard storage unavailable' });
+      return;
+    }
+    await broadcastLeaderboard(io);
+    cb({ ok: true });
   });
 
   socket.on('disconnect', async () => {

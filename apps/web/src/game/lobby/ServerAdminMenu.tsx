@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { DEFAULT_SERVER_CONFIG, type AuthStatus, type ServerConfig } from '@pwa-demo/shared';
-import { elevateAdmin, getServerConfig, getSocket, hasAdminToken, logoutAdmin, setServerConfig } from '../../lib/socket';
+import { clearLeaderboard, elevateAdmin, getServerConfig, getSocket, hasAdminToken, logoutAdmin, setServerConfig } from '../../lib/socket';
 
 /**
  * Server-browser admin menu — the fleet-level counterpart to the in-game
@@ -229,6 +229,8 @@ function DedicatedControls({ onLoggedOut }: { onLoggedOut: () => void }) {
         </div>
       </section>
 
+      <DangerZone />
+
       <section className="border-t border-slate-800 pt-3 flex items-center justify-between">
         <span className="text-emerald-300 text-[11px]">★ admin (this device)</span>
         <button
@@ -240,6 +242,66 @@ function DedicatedControls({ onLoggedOut }: { onLoggedOut: () => void }) {
         </button>
       </section>
     </>
+  );
+}
+
+// ─── danger zone ────────────────────────────────────────────────────────────
+
+/** Irreversible, fleet-wide actions. Currently just "clear leaderboard", which
+ *  truncates the persistent `tower_high_scores` table. Guarded by a two-step
+ *  arm/confirm so a stray click can't wipe it — the first click arms, a second
+ *  (within the window) commits, and the result auto-clears the armed state. */
+function DangerZone() {
+  const [armed, setArmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function handleClear() {
+    if (!armed) {
+      setArmed(true);
+      setMsg(null);
+      return;
+    }
+    setBusy(true);
+    setMsg(null);
+    const res = await clearLeaderboard();
+    setBusy(false);
+    setArmed(false);
+    if (res.ok) {
+      setMsg('Leaderboard cleared.');
+      setTimeout(() => setMsg(null), 2500);
+    } else {
+      setMsg(`Error: ${res.error}`);
+    }
+  }
+
+  return (
+    <section className="border-t border-slate-800 pt-3 space-y-2">
+      <h3 className="text-rose-400/80 text-[10px] uppercase tracking-wider">danger zone</h3>
+      <div className="flex items-center gap-3 flex-wrap">
+        <button
+          type="button"
+          onClick={handleClear}
+          disabled={busy}
+          className="px-4 py-1.5 rounded-lg bg-rose-600/20 border border-rose-500/40 text-rose-300 hover:bg-rose-600/30 text-sm font-medium disabled:opacity-50"
+        >
+          {busy ? 'Clearing…' : armed ? 'Confirm — wipe all scores?' : 'Clear leaderboard'}
+        </button>
+        {armed && !busy && (
+          <button
+            type="button"
+            onClick={() => { setArmed(false); setMsg(null); }}
+            className="text-slate-400 hover:text-slate-200 text-xs px-2 py-1"
+          >
+            cancel
+          </button>
+        )}
+        {msg && <span className="text-xs text-slate-400">{msg}</span>}
+      </div>
+      <p className="text-slate-500 text-xs">
+        Permanently deletes every saved high score. This can't be undone.
+      </p>
+    </section>
   );
 }
 

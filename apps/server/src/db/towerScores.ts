@@ -54,6 +54,22 @@ export async function recordTowerHighScore(opts: {
   }
 }
 
+/** Wipe the entire leaderboard. Irreversible. Returns true if the delete ran
+ *  (DB available), false when there's no DB so the caller can report honestly.
+ *  Silent no-op shape matches the rest of this module — dev machines without
+ *  Postgres just get `false`. */
+export async function clearTowerHighScores(): Promise<boolean> {
+  const db = getDb();
+  if (!db) return false;
+  try {
+    await db.delete(towerHighScores);
+    return true;
+  } catch (e) {
+    console.warn('[db] clear leaderboard failed:', (e as Error).message);
+    return false;
+  }
+}
+
 /** Top-N leaderboard, deduplicated by (display_name, character). Returns the
  *  player's single best score, not every session they played. */
 export async function topTowerHighScores(limit = 10): Promise<TowerHighScore[]> {

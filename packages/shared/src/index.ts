@@ -255,6 +255,10 @@ export interface ClientToServerEvents {
    *  persists it, reconciles the live dedicated lobbies (spawning/removing
    *  servers, re-capping players), and acks the clamped result. */
   'admin:set-config': (patch: Partial<ServerConfig>, cb: (r: ServerConfigResult) => void) => void;
+  /** Wipe every persisted Tower high score (admin only). Irreversible. The
+   *  server truncates `tower_high_scores` and rebroadcasts the now-empty
+   *  leaderboard to all lobby-browser subscribers. */
+  'admin:clear-leaderboard': (cb: (r: AdminResult) => void) => void;
   'debug:subscribe': () => void;
   'debug:unsubscribe': () => void;
 }

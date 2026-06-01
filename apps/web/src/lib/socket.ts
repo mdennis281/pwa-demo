@@ -115,6 +115,19 @@ export function setServerConfig(patch: Partial<ServerConfig>): Promise<ServerCon
   });
 }
 
+/** Wipe the persistent Tower leaderboard (admin only). Irreversible. On success
+ *  the server rebroadcasts the now-empty leaderboard to every lobby browser, so
+ *  the UI updates on its own — no need to refetch here. */
+export function clearLeaderboard(): Promise<AdminResult> {
+  return new Promise((resolve) => {
+    if (!socket) {
+      resolve({ ok: false, error: 'socket not connected' });
+      return;
+    }
+    socket.emit('admin:clear-leaderboard', (res) => resolve(res));
+  });
+}
+
 /** On a fresh connection, replay any token we've stored so the user doesn't
  *  have to re-paste it on every reload. Fire-and-forget — failure clears the
  *  stale token without bothering the UI. */
