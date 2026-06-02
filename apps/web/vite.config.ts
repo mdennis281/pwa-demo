@@ -111,7 +111,15 @@ export default defineConfig(({ command }) => ({
           { src: '/screenshots/screenshot-narrow.png', sizes: '720x1280',  type: 'image/png',
             form_factor: 'narrow', label: 'YesWeb on mobile' },
         ],
-        protocol_handlers: [{ protocol: 'web+pwademo', url: '/?proto=%s' }],
+        protocol_handlers: [{ protocol: 'web+yesweb', url: '/?proto=%s' }],
+        // Ask the browser to route in-scope https links (every /d/<id> and
+        // /?demo=<id> deep link) into the installed app instead of a browser
+        // tab. 'preferred' makes "open supported links in app" the default for
+        // new installs; the user can still override per-platform. Pairs with
+        // launch_handler below, which says: reuse the open app window rather
+        // than spawning a fresh one. See lib/protocolLaunch.ts for the custom-
+        // scheme path that opens the app even when link capturing is off.
+        handle_links: 'preferred',
         launch_handler: { client_mode: ['navigate-existing', 'auto'] },
         edge_side_panel: { preferred_width: 480 },
         // Needed for navigator.getInstalledRelatedApps() to recognize THIS PWA

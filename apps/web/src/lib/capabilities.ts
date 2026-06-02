@@ -392,30 +392,18 @@ export const CAPABILITIES: Capability[] = [
     check: () => supported('getGamepads' in navigator),
   },
   {
-    id: 'speech-rec',
-    name: 'Speech Recognition',
-    description: 'Browser STT.',
+    id: 'speech',
+    name: 'Speech (STT & TTS)',
+    description: 'Browser speech-to-text and text-to-speech.',
     category: 'Input & UX',
-    check: () =>
-      supported('SpeechRecognition' in window || 'webkitSpeechRecognition' in window),
-  },
-  {
-    id: 'speech-syn',
-    name: 'Speech Synthesis',
-    description: 'Browser TTS.',
-    category: 'Input & UX',
-    check: () => supported('speechSynthesis' in window),
-  },
-  {
-    id: 'speech-echo',
-    name: 'Speech Echo Loop',
-    description: 'Continuous STT transcription echoed back via TTS with voice selector.',
-    category: 'Input & UX',
-    check: () =>
-      supported(
-        ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) &&
-          'speechSynthesis' in window,
-      ),
+    // Two independent APIs under one capability: supported only when BOTH are
+    // present, partial when just one is (e.g. Firefox ships speechSynthesis but
+    // not SpeechRecognition), unsupported when neither.
+    check: () => {
+      const stt = 'SpeechRecognition' in window || 'webkitSpeechRecognition' in window;
+      const tts = 'speechSynthesis' in window;
+      return stt && tts ? 'supported' : stt || tts ? 'partial' : 'unsupported';
+    },
   },
   {
     id: 'contacts',

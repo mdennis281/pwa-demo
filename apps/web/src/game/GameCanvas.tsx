@@ -151,10 +151,10 @@ export default function GameCanvas({
     return () => { s.off('auth:status', onAuth); };
   }, []);
 
-  // Ctrl+C toggles the cheat menu; Ctrl+A toggles admin menu (host or admin-token holder)
+  // Ctrl+Shift+C toggles the cheat menu; Ctrl+A toggles admin menu (host or admin-token holder)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey && (e.code === 'KeyC' || e.key === 'c' || e.key === 'C')) {
+      if (e.ctrlKey && e.shiftKey && (e.code === 'KeyC' || e.key === 'c' || e.key === 'C')) {
         e.preventDefault();
         setCheatsOpen((v) => !v);
       }

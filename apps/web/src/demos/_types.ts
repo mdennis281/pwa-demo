@@ -50,3 +50,19 @@ export function modalQueryFor(id: string, existing?: URLSearchParams): string {
   sp.set('demo', id);
   return `?${sp.toString()}`;
 }
+
+/**
+ * Build the canonical, *absolute* deep link to a demo — the URL you'd paste
+ * into a chat or share sheet. Page/multi-page demos resolve to `/d/<id>`;
+ * modal demos resolve to `/?demo=<id>` anchored at the app root (a modal
+ * overlays any route, so home is the deterministic share target). `origin`
+ * defaults to the current window but is overridable for testing/SSR.
+ */
+export function deepLinkFor(
+  demo: Pick<DemoSpec, 'id' | 'type'>,
+  origin: string = window.location.origin,
+): string {
+  return demo.type === 'modal'
+    ? `${origin}/${modalQueryFor(demo.id)}`
+    : `${origin}${pagePathFor(demo.id)}`;
+}

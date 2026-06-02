@@ -4,6 +4,7 @@ import Layout from './components/Layout';
 import { DEMOS } from './demos/_registry';
 import { pagePathFor } from './demos/_types';
 import { holdSplashForRoute } from './lib/splash';
+import { useProtocolLaunch } from './lib/protocolLaunch';
 
 const Home = lazy(() => import('./routes/Home'));
 const Category = lazy(() => import('./routes/Category'));
@@ -30,6 +31,8 @@ const LEGACY_REDIRECTS: Record<string, string> = {
 };
 
 export default function App() {
+  // Forward `web+yesweb:` protocol launches to their in-app destination.
+  useProtocolLaunch();
   return (
     <Routes>
       <Route element={<Layout />}>

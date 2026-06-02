@@ -46,19 +46,22 @@ The sidebar, the per-category page, the `App.tsx` routes, and the favorites look
 
 The `?demo=<id>` modal scheme means modal demos are **deep-linkable** without affecting which page you're on. Open `?demo=vibration` from anywhere; closing the modal removes the param and you're back on the underlying route.
 
+Cold loads resolve the same way: the server's SPA fallback (`app.get('*')`) and the service worker's `NavigationRoute` both serve `index.html` for any non-`/api` path, so pasting `/d/tower-climb` (or `/?demo=vibration`) into a fresh tab — online *or* offline — boots the app and routes client-side. Every demo's chrome carries a **Share / copy-link** button (`_ShareButton.tsx`) that hands the canonical absolute URL (`deepLinkFor()`) to the Web Share API, falling back to the clipboard. Fullscreen demos that skip `<DemoPage>` (Tower Climb) manage their own chrome and don't show it, but their `/d/<id>` link still works.
+
 Legacy paths (`/wco`, `/push`, `/passkeys`, `/islands`, `/speech-echo`, `/indexed-db`, `/manifest`, `/status`, `/worker`, `/game`) are mapped to the new `/d/<id>` form via redirects in `App.tsx`, so old bookmarks still work.
 
 ## Framework files (`_` prefix)
 
 | File | Purpose |
 |---|---|
-| [`_types.ts`](_types.ts) | `DemoSpec`, `DemoType`, `pagePathFor()`, `modalQueryFor()` |
+| [`_types.ts`](_types.ts) | `DemoSpec`, `DemoType`, `pagePathFor()`, `modalQueryFor()`, `deepLinkFor()` |
 | [`_registry.ts`](_registry.ts) | The `DEMOS` array — source of truth for everything else; lookup helpers (`demoById`, `demosForCapability`, `demosForCategory`) |
 | [`_favorites.ts`](_favorites.ts) | IndexedDB-backed favorites store (`useFavorites` hook, cross-tab `BroadcastChannel` sync) |
 | [`_ModalHost.tsx`](_ModalHost.tsx) | URL-driven modal renderer; ESC + backdrop close; body-scroll lock |
 | [`_DemoPage.tsx`](_DemoPage.tsx) | Page-demo wrapper: back link, title, star, max-width content area |
 | [`_OpenDemo.tsx`](_OpenDemo.tsx) | `<OpenDemoLink>` — picks `?demo=` vs `/d/` based on type; `useIsDemoActive` hook |
 | [`_StarButton.tsx`](_StarButton.tsx) | Reusable favorite toggle (★/☆) — `sm` and `md` sizes |
+| [`_ShareButton.tsx`](_ShareButton.tsx) | Share / copy-link button — Web Share API with clipboard fallback; sits beside the star in modal + page chrome |
 | [`_shared/ui.tsx`](_shared/ui.tsx) | `Btn`, `Out`, `Row` — the demo UI vocabulary |
 | [`_shared/b64.ts`](_shared/b64.ts) | base64url encode/decode (used by WebAuthn / passkey demos) |
 
@@ -103,8 +106,9 @@ The relationship is many-to-many:
 - One demo can cover several capabilities. The multi-cap demos today:
   - `push` → `['push', 'notifications']`
   - `islands` (Floating Islands 3D scene) → `['motion', 'orientation']`
-  - `speech-echo` → `['speech-rec', 'speech-syn', 'speech-echo']`
   - `tower-climb` → `['webgl', 'webgl2', 'websocket', 'gamepad']`
+
+  The three speech demos (`speech-rec`, `speech-syn`, `speech-echo`) all map to the single `speech` capability, so they're listed together under one "Speech (STT & TTS)" row.
 
 Lookup helpers in [`_registry.ts`](_registry.ts):
 

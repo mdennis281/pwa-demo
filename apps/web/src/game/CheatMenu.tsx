@@ -28,7 +28,7 @@ export default function CheatMenu({
           onClick={onClose}
           className="text-slate-400 hover:text-white text-xs"
         >
-          close (Ctrl+C)
+          close (Ctrl+Shift+C)
         </button>
       </div>
       <div className="flex flex-col gap-3 text-sm">

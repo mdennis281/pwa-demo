@@ -450,7 +450,7 @@ export const DEMOS: DemoSpec[] = [
     blurb: 'Browser-native STT (Chrome/Edge).',
     type: 'modal',
     category: 'Input & UX',
-    capabilities: ['speech-rec'],
+    capabilities: ['speech'],
     component: lazy(() => import('./input-ux/speech-rec')),
   },
   {
@@ -459,7 +459,7 @@ export const DEMOS: DemoSpec[] = [
     blurb: 'Browser-native TTS.',
     type: 'modal',
     category: 'Input & UX',
-    capabilities: ['speech-syn'],
+    capabilities: ['speech'],
     component: lazy(() => import('./input-ux/speech-syn')),
   },
   {
@@ -468,7 +468,7 @@ export const DEMOS: DemoSpec[] = [
     blurb: 'Live transcription on the left, TTS readback on the right.',
     type: 'page',
     category: 'Input & UX',
-    capabilities: ['speech-rec', 'speech-syn', 'speech-echo'],
+    capabilities: ['speech'],
     component: lazy(() => import('./input-ux/speech-echo')),
   },
   {

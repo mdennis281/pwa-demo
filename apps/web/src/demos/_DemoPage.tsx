@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router';
+import { deepLinkFor } from './_types';
 import { useFavorites } from './_favorites';
 import { StarButton } from './_StarButton';
+import { ShareButton } from './_ShareButton';
 
 /**
  * Standard chrome for page/multi-page demos. Provides:
@@ -59,6 +61,7 @@ export function DemoPage({
           <h1 className="text-2xl md:text-3xl font-bold">{title}</h1>
           {blurb && <p className="text-slate-400 mt-1 text-sm">{blurb}</p>}
         </div>
+        <ShareButton url={deepLinkFor({ id, type: 'page' })} title={title} />
         <StarButton on={isFavorite(id)} onClick={() => toggle(id)} />
       </div>
       {children}

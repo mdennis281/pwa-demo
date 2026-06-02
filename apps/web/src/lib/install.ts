@@ -293,18 +293,24 @@ export async function detectInstalledElsewhere(): Promise<boolean> {
 }
 
 /** Attempt to hand off to the installed PWA via the custom protocol declared
- *  in the manifest (`web+pwademo`). On Chromium with the protocol handler
- *  registered, this launches the installed app at /?proto=open. On browsers
+ *  in the manifest (`web+yesweb`). On Chromium with the protocol handler
+ *  registered, this launches the installed app at `/?proto=<target>` — which
+ *  lib/protocolLaunch.ts then forwards to the real in-app route. On browsers
  *  that don't know the scheme, it's a silent no-op — the caller should keep
  *  fallback guidance visible so the user can still get there manually.
  *
+ *  `target` is the in-app destination as a relative path (e.g. `/d/tower-climb`
+ *  or `/?demo=vibration`), or the `'open'` sentinel to just focus the app at
+ *  home. Unlike https link capturing, a custom-scheme launch opens the app even
+ *  when "open supported links" is off, so it's the reliable in-app handoff.
+ *
  *  Returns false synchronously if we can tell the attempt won't work (no
  *  window), so the UI can skip the optimistic transition. */
-export function openInstalledApp(): boolean {
+export function openInstalledApp(target: string = 'open'): boolean {
   if (typeof window === 'undefined') return false;
   // Setting location to a custom scheme either launches the registered
   // handler or no-ops; it does NOT replace the current document, so the
   // user stays put if nothing claims the scheme.
-  window.location.href = 'web+pwademo:open';
+  window.location.href = `web+yesweb:${target}`;
   return true;
 }

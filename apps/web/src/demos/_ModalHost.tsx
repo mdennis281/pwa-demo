@@ -1,8 +1,10 @@
 import { Suspense, useEffect, useMemo, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { DEMOS } from './_registry';
+import { deepLinkFor } from './_types';
 import { useFavorites } from './_favorites';
 import { StarButton } from './_StarButton';
+import { ShareButton } from './_ShareButton';
 
 /**
  * Renders the current modal demo, driven by the `?demo=<id>` query param.
@@ -66,6 +68,7 @@ export default function ModalHost() {
             <div className="font-semibold text-slate-100 truncate">{demo.title}</div>
             <div className="text-xs text-slate-500 leading-snug">{demo.blurb}</div>
           </div>
+          <ShareButton url={deepLinkFor(demo)} title={demo.title} />
           <StarButton
             on={isFavorite(demo.id)}
             onClick={() => toggle(demo.id)}
