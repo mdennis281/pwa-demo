@@ -5,6 +5,7 @@ import { DEMOS } from './demos/_registry';
 import { pagePathFor } from './demos/_types';
 import { holdSplashForRoute } from './lib/splash';
 import { useProtocolLaunch } from './lib/protocolLaunch';
+import { useDocumentTitle } from './lib/documentTitle';
 
 const Home = lazy(() => import('./routes/Home'));
 const Category = lazy(() => import('./routes/Category'));
@@ -33,6 +34,8 @@ const LEGACY_REDIRECTS: Record<string, string> = {
 export default function App() {
   // Forward `web+yesweb:` protocol launches to their in-app destination.
   useProtocolLaunch();
+  // Title the tab "YesWeb • <Demo>" while a demo is open.
+  useDocumentTitle();
   return (
     <Routes>
       <Route element={<Layout />}>

@@ -97,7 +97,7 @@ export default function HUD({
       {/* Bottom-center: controls hint */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-xs text-slate-300 bg-slate-950/60 backdrop-blur border border-slate-800 rounded-lg px-3 py-1.5 hidden md:block">
         {pointerLocked ? (
-          <>WASD · SPACE jump (×2 double) · hold W on ladders · reach the summit beacon · <span className="text-amber-300">H wave</span> · <span className="text-pink-300">P party</span></>
+          <>WASD · SPACE jump (×2 double, timing matters) · reach the summit beacon · <span className="text-amber-300">H wave</span> · <span className="text-pink-300">P party</span></>
         ) : (
           <>click canvas to capture mouse · WASD / SPACE / mouse · climb to the summit · H wave · P party</>
         )}

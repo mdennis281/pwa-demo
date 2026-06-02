@@ -524,7 +524,7 @@ export default function GameCanvas({
           <div className="bg-slate-950/80 backdrop-blur border border-slate-700 rounded-lg px-4 py-3 text-center text-slate-300 text-sm max-w-sm">
             {liveRole === 'player'
               ? 'click anywhere to capture mouse — climb to the summit beacon!'
-              : 'click anywhere to capture mouse — spectator mode, WASD to fly'}
+              : 'click anywhere to capture mouse — spectator mode: WASD to fly, Space up / Shift down'}
           </div>
         </div>
       )}

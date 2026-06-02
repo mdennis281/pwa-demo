@@ -553,7 +553,7 @@ export const DEMOS: DemoSpec[] = [
     blurb: '200 rotating quads in a single drawArraysInstanced call.',
     type: 'modal',
     category: 'Graphics & compute',
-    capabilities: ['webgl2'],
+    capabilities: ['webgl'],
     component: lazy(() => import('./graphics-compute/webgl2')),
   },
   {
@@ -594,7 +594,7 @@ export const DEMOS: DemoSpec[] = [
   },
   {
     id: 'worker',
-    title: 'Sieve off-thread',
+    title: 'Worker Load Test',
     blurb: 'Run a heavy sieve off-thread while a flow field animates.',
     type: 'page',
     category: 'Graphics & compute',
@@ -607,7 +607,7 @@ export const DEMOS: DemoSpec[] = [
     blurb: '3D multiplayer climb — three.js + socket.io.',
     type: 'multi-page',
     category: 'Graphics & compute',
-    capabilities: ['webgl', 'webgl2', 'websocket', 'gamepad'],
+    capabilities: ['webgl', 'websocket', 'gamepad'],
     component: lazy(() => import('./graphics-compute/tower-climb')),
   },
 ];

@@ -455,24 +455,16 @@ export const CAPABILITIES: Capability[] = [
   {
     id: 'webgl',
     name: 'WebGL',
-    description: 'GPU-accelerated 2D/3D graphics.',
+    description: 'GPU-accelerated 2D/3D graphics. Partial = WebGL 1 only; supported = WebGL 2 (GLES 3.0).',
     category: 'Graphics & compute',
+    // Combined WebGL 1 + 2: supported when WebGL 2 is available, partial when
+    // only the v1 context can be created, unsupported when neither works.
     check: () => {
       try {
         const c = document.createElement('canvas');
-        return supported(!!c.getContext('webgl'));
-      } catch { return 'unsupported'; }
-    },
-  },
-  {
-    id: 'webgl2',
-    name: 'WebGL 2',
-    description: 'GLES 3.0–level GPU graphics.',
-    category: 'Graphics & compute',
-    check: () => {
-      try {
-        const c = document.createElement('canvas');
-        return supported(!!c.getContext('webgl2'));
+        if (c.getContext('webgl2')) return 'supported';
+        if (c.getContext('webgl')) return 'partial';
+        return 'unsupported';
       } catch { return 'unsupported'; }
     },
   },

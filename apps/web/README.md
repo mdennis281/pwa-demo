@@ -68,7 +68,7 @@ M:N: one demo can cover several capabilities, one capability can have several de
 
 - Push demo → `push` + `notifications`
 - Floating Islands → `motion` + `orientation`
-- Tower Climb → `webgl` + `webgl2` + `websocket` + `gamepad`
+- Tower Climb → `webgl` + `websocket` + `gamepad`
 - WebAuthn → `webauthn` is exercised by both a 30-line modal demo *and* a full diagnostic page at `/d/passkeys`
 
 See [`src/demos/README.md`](src/demos/README.md) for the full demo-authoring recipe.

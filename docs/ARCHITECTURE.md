@@ -174,7 +174,7 @@ Every demo is one of three types defined in [`apps/web/src/demos/_types.ts`](../
 
 A central registry in [`_registry.ts`](../apps/web/src/demos/_registry.ts) lazy-loads every demo. The sidebar, the per-category page, the routes in `App.tsx`, and the favorites system all derive from the registry. Adding a new demo is one file + one registry entry — full contract in [`apps/web/src/demos/README.md`](../apps/web/src/demos/README.md).
 
-Capabilities (a separate concept — there are ~70 entries in [`apps/web/src/lib/capabilities.ts`](../apps/web/src/lib/capabilities.ts)) describe browser APIs and their detection logic. A demo declares which capability ids it exercises. The M:N mapping lets one demo cover multiple capabilities (Push covers `push` + `notifications`; Floating Islands covers `motion` + `orientation`; Tower Climb covers `webgl` + `webgl2` + `websocket` + `gamepad`) and lets one capability be touched by multiple demos (WebAuthn has a 30-line modal demo *and* a full `/d/passkeys` diagnostic page).
+Capabilities (a separate concept — there are ~70 entries in [`apps/web/src/lib/capabilities.ts`](../apps/web/src/lib/capabilities.ts)) describe browser APIs and their detection logic. A demo declares which capability ids it exercises. The M:N mapping lets one demo cover multiple capabilities (Push covers `push` + `notifications`; Floating Islands covers `motion` + `orientation`; Tower Climb covers `webgl` + `websocket` + `gamepad`) and lets one capability be touched by multiple demos (WebAuthn has a 30-line modal demo *and* a full `/d/passkeys` diagnostic page).
 
 ## Backend architecture
 

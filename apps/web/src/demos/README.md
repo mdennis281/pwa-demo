@@ -106,7 +106,7 @@ The relationship is many-to-many:
 - One demo can cover several capabilities. The multi-cap demos today:
   - `push` → `['push', 'notifications']`
   - `islands` (Floating Islands 3D scene) → `['motion', 'orientation']`
-  - `tower-climb` → `['webgl', 'webgl2', 'websocket', 'gamepad']`
+  - `tower-climb` → `['webgl', 'websocket', 'gamepad']`
 
   The three speech demos (`speech-rec`, `speech-syn`, `speech-echo`) all map to the single `speech` capability, so they're listed together under one "Speech (STT & TTS)" row.
 
@@ -140,8 +140,8 @@ The registry's `title` field is an **action**, not a technology name. Why: the c
 | WebAuthn (modal) | "Quick register & sign-in" |
 | WebAuthn (page) | "Full diagnostic" |
 | Payment Request | "Probe & show sheet" |
-| WebGL | "Animated triangle" |
-| WebGL 2 | "Instanced rendering" |
+| WebGL (triangle) | "Animated triangle" |
+| WebGL (instanced) | "Instanced rendering" |
 
 Multi-cap demos that exercise several techs at once get proper-noun names (Tower Climb, Floating Islands, Speech Echo Loop) — they're branded experiences spanning multiple capabilities, not single-API demonstrations.
 
