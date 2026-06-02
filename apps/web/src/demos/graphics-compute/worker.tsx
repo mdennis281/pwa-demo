@@ -78,8 +78,9 @@ export default function WebWorkerDemo() {
       <p className="text-slate-400 mb-6">
         A flow-field particle animation runs continuously on the main thread. Click <strong>Main thread</strong> to
         block it — the field freezes. Click <strong>Web Worker</strong> and the animation stays buttery while the
-        same sieve runs off-thread. Click <strong>WebAssembly</strong> to run the same sieve as a compiled module on
-        the main thread — it still freezes, but finishes the work noticeably faster than the JS loop.
+        same sieve runs off-thread. Click <strong>WebAssembly</strong> to run the same sieve compiled to WASM, also on
+        the main thread — a tight typed-array loop like this already JITs to near-native, so it lands close to plain JS
+        (the <em>Benchmark vs JS</em> demo shows where WASM pulls far ahead).
       </p>
 
       <FlowField className="mb-6" />

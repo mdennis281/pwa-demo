@@ -584,6 +584,15 @@ export const DEMOS: DemoSpec[] = [
     component: lazy(() => import('./graphics-compute/wasm')),
   },
   {
+    id: 'wasm-bench',
+    title: 'Benchmark vs JS',
+    blurb: 'Race the same algorithm in JS and WASM — where WASM wins big, and where it just ties.',
+    type: 'page',
+    category: 'Graphics & compute',
+    capabilities: ['wasm'],
+    component: lazy(() => import('./graphics-compute/wasm-bench')),
+  },
+  {
     id: 'sab',
     title: 'Check isolation',
     blurb: 'Check cross-origin isolation and SAB availability.',
