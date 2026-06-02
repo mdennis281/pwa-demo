@@ -8,14 +8,23 @@ export default function WebWorkerDemo() {
   const [n, setN] = useState(200_000_000);
   const [mainResult, setMainResult] = useState<Result>(null);
   const [workerResult, setWorkerResult] = useState<Result>(null);
+  const [wasmResult, setWasmResult] = useState<Result>(null);
   const [mainRunning, setMainRunning] = useState(false);
   const [workerRunning, setWorkerRunning] = useState(false);
+  const [wasmRunning, setWasmRunning] = useState(false);
   const workerRef = useRef<Worker | null>(null);
+  const wasmRef = useRef<((n: number) => number) | null>(null);
   const jobIdRef = useRef(0);
 
   useEffect(() => {
     workerRef.current = new Worker(new URL('../../workers/compute.worker.ts', import.meta.url), { type: 'module' });
     return () => workerRef.current?.terminate();
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    loadSieveWasm().then((fn) => { if (alive) wasmRef.current = fn; }).catch(() => {});
+    return () => { alive = false; };
   }, []);
 
   function runMain() {
@@ -45,6 +54,20 @@ export default function WebWorkerDemo() {
     workerRef.current.postMessage({ kind: 'sieve', n, jobId });
   }
 
+  function runWasm() {
+    const sieve = wasmRef.current;
+    if (!sieve) return;
+    setWasmRunning(true);
+    setWasmResult(null);
+    setTimeout(() => {
+      const start = performance.now();
+      const count = sieve(n);
+      const ms = performance.now() - start;
+      setWasmResult({ count, ms });
+      setWasmRunning(false);
+    }, 16);
+  }
+
   return (
     <DemoPage
       id="worker"
@@ -55,7 +78,8 @@ export default function WebWorkerDemo() {
       <p className="text-slate-400 mb-6">
         A flow-field particle animation runs continuously on the main thread. Click <strong>Main thread</strong> to
         block it — the field freezes. Click <strong>Web Worker</strong> and the animation stays buttery while the
-        same sieve runs off-thread.
+        same sieve runs off-thread. Click <strong>WebAssembly</strong> to run the same sieve as a compiled module on
+        the main thread — it still freezes, but finishes the work noticeably faster than the JS loop.
       </p>
 
       <FlowField className="mb-6" />
@@ -73,10 +97,10 @@ export default function WebWorkerDemo() {
         />
       </label>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Panel
           title="Main thread"
-          subtitle="will freeze the animation"
+          subtitle="JS, freezes the animation"
           running={mainRunning}
           result={mainResult}
           onRun={runMain}
@@ -84,11 +108,19 @@ export default function WebWorkerDemo() {
         />
         <Panel
           title="Web Worker"
-          subtitle="off-thread, animation stays smooth"
+          subtitle="JS off-thread, stays smooth"
           running={workerRunning}
           result={workerResult}
           onRun={runWorker}
           color="emerald"
+        />
+        <Panel
+          title="WebAssembly"
+          subtitle="compiled, on main thread"
+          running={wasmRunning}
+          result={wasmResult}
+          onRun={runWasm}
+          color="indigo"
         />
       </div>
     </DemoPage>
@@ -98,11 +130,13 @@ export default function WebWorkerDemo() {
 function Panel({
   title, subtitle, running, result, onRun, color,
 }: {
-  title: string; subtitle: string; running: boolean; result: Result; onRun: () => void; color: 'rose' | 'emerald';
+  title: string; subtitle: string; running: boolean; result: Result; onRun: () => void; color: 'rose' | 'emerald' | 'indigo';
 }) {
   const cls = color === 'rose'
     ? 'bg-rose-600 hover:bg-rose-500'
-    : 'bg-emerald-600 hover:bg-emerald-500';
+    : color === 'emerald'
+    ? 'bg-emerald-600 hover:bg-emerald-500'
+    : 'bg-indigo-600 hover:bg-indigo-500';
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-lg p-4">
       <div className="flex items-baseline justify-between mb-1">
@@ -139,4 +173,28 @@ function sievePrimes(n: number): number {
     for (let j = i * i; j <= n; j += i) sieve[j] = 1;
   }
   return count;
+}
+
+/**
+ * The same sieve, compiled to WebAssembly. Exports `sieve(n: i32) -> i32` and
+ * owns its linear memory, growing it to hold n+1 bytes and clearing the region
+ * on each call. Hand-authored in WAT and assembled with wabt; the inner loop
+ * computes i*i in i64 to avoid 32-bit overflow at large N. 195 bytes.
+ */
+const SIEVE_WASM_B64 =
+  'AGFzbQEAAAABBgFgAX8BfwMCAQAFAwEAAQcPAgNtZW0CAAVzaWV2ZQAACpYBAZMBAwJ/An4CfyAA' +
+  'QYCABGpBgIAEbiEFPwAhBiAFIAZLBEAgBSAGa0AAGgtBAEEAIABBAWr8CwAgAKwhBEEAIQJBAiEB' +
+  'AkADQCABIABKDQEgAS0AAEUEQCACQQFqIQIgAawgAax+IQMCQANAIAMgBFUNASADp0EBOgAAIAMg' +
+  'Aax8IQMMAAsLCyABQQFqIQEMAAsLIAIL';
+
+function sieveWasmBytes() {
+  const bin = atob(SIEVE_WASM_B64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+async function loadSieveWasm(): Promise<(n: number) => number> {
+  const { instance } = await WebAssembly.instantiate(sieveWasmBytes());
+  return instance.exports.sieve as (n: number) => number;
 }
