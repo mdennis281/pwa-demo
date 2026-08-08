@@ -1,0 +1,36 @@
+# .dispatch/ — self-contained, committable Dispatch config for this repo.
+# Discovered + loaded by Dispatch as the SOURCE OF TRUTH for authored config;
+# .data keeps only runtime state (chats, sessions, checkpoints). Safe to commit.
+name: YesWeb
+worktreeRoot: .worktrees
+workflow:
+  profile: commit
+
+subApps:
+  # Full stack: Vite web + Express/Socket.io API, via the root `concurrently`
+  # script. Dispatch injects its primary allocated port as bare PORT, which
+  # `npm run dev` would hand to BOTH child processes — the API would then try to
+  # bind the same port as Vite and collide. So PORT is overridden to {port2}
+  # (the 3000-based allocation), which is where apps/web/vite.config.ts proxies
+  # /api and /socket.io. Both ports are hardcoded + strictPort in that config,
+  # so if 5173 or 3000 is already taken the dev server fails rather than
+  # sliding to the offset port Dispatch picked.
+  - id: dev
+    name: YesWeb dev (web :5173 + api :3000)
+    cwd: .
+    install: npm install
+    dev: npm run dev
+    build: npm run build
+    ports: [5173, 3000]
+    env:
+      PORT: "{port2}"
+      WEB_ORIGIN: http://localhost:{port}
+    url: http://localhost:{port}
+
+  # Postgres 16 for the Tower leaderboard + push subscriptions. Optional —
+  # the API boots without it and the leaderboard degrades to an empty list.
+  - id: db
+    name: Postgres 16 (docker)
+    cwd: .
+    docker: docker-compose.yml
+    ports: [5432]
