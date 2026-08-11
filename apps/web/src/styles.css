@@ -9,6 +9,11 @@
 
 :root {
   color-scheme: dark;
+
+  /* Height of the OS titlebar strip the app paints into under Window Controls
+     Overlay. Resolves to 0px in every other display mode, so layout rules can
+     reference it unconditionally (see components/WcoTitlebar.tsx). */
+  --wco-h: env(titlebar-area-height, 0px);
 }
 
 html, body, #root {
@@ -29,6 +34,33 @@ body {
 
 .titlebar-area {
   padding-top: env(titlebar-area-height, 0);
+}
+
+/* Window Controls Overlay drag strip.
+   With WCO the browser stops drawing a titlebar, so the "grab the bar to move
+   the window" affordance disappears unless the page provides one. This strip is
+   positioned over exactly the area the OS left free (the env() rect excludes the
+   minimize/maximize/close buttons — which sit right on Windows, left on macOS)
+   and opts that region into window dragging via `app-region`. */
+.wco-titlebar {
+  position: fixed;
+  top: env(titlebar-area-y, 0px);
+  left: env(titlebar-area-x, 0px);
+  width: env(titlebar-area-width, 100%);
+  height: env(titlebar-area-height, 0px);
+  -webkit-app-region: drag;
+  app-region: drag;
+  /* Text inside a drag region would otherwise start a selection instead of a
+     window move on drag. */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Anything clickable inside the strip has to opt back out — a drag region
+   swallows pointer events before they reach the control. */
+.wco-titlebar :is(a, button, input, select, textarea, .wco-no-drag) {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 /* Safe-area insets for PWA on notched / rounded-corner displays.

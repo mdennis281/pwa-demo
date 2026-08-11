@@ -6,6 +6,7 @@ import DemoSidebar from './DemoSidebar';
 import PullToRefresh from './PullToRefresh';
 import PwaUpdater from './PwaUpdater';
 import VersionBadge from './VersionBadge';
+import WcoTitlebar from './WcoTitlebar';
 import ModalHost from '../demos/_ModalHost';
 import { pwaEnv, envLogoFilter } from '../lib/env';
 
@@ -30,7 +31,9 @@ export default function Layout() {
   useLayoutEffect(() => {
     const el = headerRef.current;
     if (!el) return;
-    const measure = () => setHeaderH(el.getBoundingClientRect().height);
+    // `bottom`, not `height` — the sticky header can be offset from the
+    // viewport top by the WCO titlebar strip, and the menu docks below it.
+    const measure = () => setHeaderH(el.getBoundingClientRect().bottom);
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
@@ -54,11 +57,17 @@ export default function Layout() {
   }, [mobileOpen]);
 
   return (
-    <div className="min-h-screen flex flex-col md:flex-row bg-slate-900 md:bg-transparent">
+    // pt-[var(--wco-h)] reserves the Window Controls Overlay titlebar strip so
+    // the sidebar/header don't sit underneath it. --wco-h is 0px in every other
+    // display mode, so this is inert outside an installed desktop PWA.
+    <div className="min-h-screen pt-[var(--wco-h)] flex flex-col md:flex-row bg-slate-900 md:bg-transparent">
+      {/* Draggable strip over the OS titlebar area — renders only under WCO. */}
+      <WcoTitlebar />
+
       {/* Mobile top bar — pt-safe pushes content below the notch/rounded
           corner in PWA mode (viewport-fit=cover); the slate-900 bg fills
           the safe area so it doesn't look like a gap. */}
-      <header ref={headerRef} className="md:hidden sticky top-0 z-30 flex items-center justify-between bg-slate-900 border-b border-slate-800 px-4 py-3 pt-[max(env(safe-area-inset-top),0.75rem)] pl-[max(env(safe-area-inset-left),1rem)] pr-[max(env(safe-area-inset-right),1rem)]">
+      <header ref={headerRef} className="md:hidden sticky top-[var(--wco-h)] z-30 flex items-center justify-between bg-slate-900 border-b border-slate-800 px-4 py-3 pt-[max(env(safe-area-inset-top),0.75rem)] pl-[max(env(safe-area-inset-left),1rem)] pr-[max(env(safe-area-inset-right),1rem)]">
         <Link to="/" className="flex items-center gap-2" onClick={() => setMobileOpen(false)}>
           <img src="/logo.svg" alt="" className="w-7 h-7" style={{ filter: envLogoFilter }} />
           <div>
@@ -81,7 +90,7 @@ export default function Layout() {
         style={mobileOpen ? { top: headerH } : undefined}
         className={`${
           mobileOpen ? 'fixed inset-x-0 bottom-0 z-20 flex' : 'hidden'
-        } md:static md:inset-auto md:z-auto md:flex md:w-72 md:min-h-screen md:sticky md:top-0 md:max-h-screen bg-slate-900 border-r border-slate-800 p-4 pb-[max(env(safe-area-inset-bottom),1rem)] pl-[max(env(safe-area-inset-left),1rem)] pr-[max(env(safe-area-inset-right),1rem)] md:pb-4 md:pl-4 md:pr-4 flex-col gap-3`}
+        } md:static md:inset-auto md:z-auto md:flex md:w-72 md:min-h-[calc(100vh-var(--wco-h))] md:sticky md:top-[var(--wco-h)] md:max-h-[calc(100vh-var(--wco-h))] bg-slate-900 border-r border-slate-800 p-4 pb-[max(env(safe-area-inset-bottom),1rem)] pl-[max(env(safe-area-inset-left),1rem)] pr-[max(env(safe-area-inset-right),1rem)] md:pb-4 md:pl-4 md:pr-4 flex-col gap-3`}
       >
         <Link to="/" className="hidden md:flex items-center gap-2" onClick={() => setMobileOpen(false)}>
           <img src="/logo.svg" alt="" className="w-8 h-8" style={{ filter: envLogoFilter }} />
