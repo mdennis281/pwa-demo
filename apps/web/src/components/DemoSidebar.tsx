@@ -106,7 +106,7 @@ export default function DemoSidebar() {
         )}
       </div>
 
-      <nav className="flex-1 min-h-0 overflow-y-auto pr-1 -mr-1 space-y-1 text-sm">
+      <nav className="flex-1 min-h-0 overflow-y-auto overscroll-contain pr-1 -mr-1 space-y-1 text-sm">
         <NavLink
           to="/"
           end

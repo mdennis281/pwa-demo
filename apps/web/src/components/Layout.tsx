@@ -57,10 +57,17 @@ export default function Layout() {
   }, [mobileOpen]);
 
   return (
+    // Desktop (md+) is a fixed app shell: the root is pinned to the viewport
+    // and clips, so the document never scrolls — the sidebar and <main> each
+    // own their scrollbar and can't drag the other around. Below md the shell
+    // stays document-scrolled (the mobile header is sticky and
+    // PullToRefresh's gesture keys off window scroll being at 0).
+    //
     // pt-[var(--wco-h)] reserves the Window Controls Overlay titlebar strip so
     // the sidebar/header don't sit underneath it. --wco-h is 0px in every other
-    // display mode, so this is inert outside an installed desktop PWA.
-    <div className="min-h-screen pt-[var(--wco-h)] flex flex-col md:flex-row bg-slate-900 md:bg-transparent">
+    // display mode, so this is inert outside an installed desktop PWA. Height
+    // is border-box, so h-screen already accounts for that padding.
+    <div className="min-h-screen md:min-h-0 md:h-screen md:overflow-hidden pt-[var(--wco-h)] flex flex-col md:flex-row bg-slate-900 md:bg-transparent">
       {/* Draggable strip over the OS titlebar area — renders only under WCO. */}
       <WcoTitlebar />
 
@@ -90,7 +97,7 @@ export default function Layout() {
         style={mobileOpen ? { top: headerH } : undefined}
         className={`${
           mobileOpen ? 'fixed inset-x-0 bottom-0 z-20 flex' : 'hidden'
-        } md:static md:inset-auto md:z-auto md:flex md:w-72 md:min-h-[calc(100vh-var(--wco-h))] md:sticky md:top-[var(--wco-h)] md:max-h-[calc(100vh-var(--wco-h))] bg-slate-900 border-r border-slate-800 p-4 pb-[max(env(safe-area-inset-bottom),1rem)] pl-[max(env(safe-area-inset-left),1rem)] pr-[max(env(safe-area-inset-right),1rem)] md:pb-4 md:pl-4 md:pr-4 flex-col gap-3`}
+        } md:static md:inset-auto md:z-auto md:flex md:w-72 md:h-full md:min-h-0 bg-slate-900 border-r border-slate-800 p-4 pb-[max(env(safe-area-inset-bottom),1rem)] pl-[max(env(safe-area-inset-left),1rem)] pr-[max(env(safe-area-inset-right),1rem)] md:pb-4 md:pl-4 md:pr-4 flex-col gap-3`}
       >
         <Link to="/" className="hidden md:flex items-center gap-2" onClick={() => setMobileOpen(false)}>
           <img src="/logo.svg" alt="" className="w-8 h-8" style={{ filter: envLogoFilter }} />
@@ -118,7 +125,7 @@ export default function Layout() {
         </div>
       </aside>
 
-      <main className="flex-1 min-w-0 bg-slate-950 pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
+      <main className="flex-1 min-w-0 md:h-full md:min-h-0 md:overflow-y-auto md:overscroll-contain bg-slate-950 pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
         <Outlet />
       </main>
 
