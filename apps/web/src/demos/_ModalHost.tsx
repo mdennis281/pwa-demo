@@ -53,7 +53,11 @@ export default function ModalHost() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-3 sm:p-6"
+      // Starts below the WCO titlebar strip so the app-drawn titlebar stays
+      // visible and draggable while a modal is open — otherwise an installed
+      // desktop PWA can't be moved until the modal is dismissed. --wco-h is
+      // 0px in every other display mode, so this is the usual inset-0.
+      className="fixed inset-x-0 bottom-0 top-[var(--wco-h)] z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-3 sm:p-6"
       onClick={close}
       role="dialog"
       aria-modal="true"
