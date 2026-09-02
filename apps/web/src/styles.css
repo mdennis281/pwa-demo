@@ -128,16 +128,24 @@ body {
   to   { transform: translate3d(-50%, 0, 0); }
 }
 
-/* Button 3 — the duck.
-   Three stacked motions: the track clips it to the strip, .wco-duck carries
-   it across, and .wco-duck-art rocks side to side while the legs alternate.
-   It holds offscreen for the tail of the cycle so passes are spaced out. */
+/* Button 3 — the ducks.
+   Three stacked motions: the track clips them to the strip, .wco-duck carries
+   one across, and .wco-duck-art rocks side to side while the legs alternate.
+
+   It's a procession, not a single looping duck — one duck is offscreen for
+   most of any cycle, which reads as the effect having stalled. Each duck
+   carries its slot in `--i` and everything else falls out of two variables
+   the component measures onto the track (see components/WcoTitlebar):
+     --wco-duck-span  distance from the left edge to fully offscreen
+     --wco-duck-dur   time to walk it, sized to hold a constant px/s
+   Fallbacks keep this sane if the measure hasn't landed on the first frame. */
 .wco-duck-track {
   position: absolute;
   inset: 0;
   z-index: -1;
   overflow: hidden;
   pointer-events: none;
+  --wco-duck-waddle-dur: 0.84s;
 }
 
 .wco-duck {
@@ -147,20 +155,26 @@ body {
   left: 0;
   display: flex;
   align-items: center;
-  animation: wco-duck-walk 12s linear infinite;
+  animation: wco-duck-walk var(--wco-duck-dur, 12s) linear infinite;
+  /* Negative delay: each duck starts already part-way across, so they're
+     evenly spread from the first frame rather than filing in one by one. */
+  animation-delay: calc(var(--wco-duck-dur, 12s) / var(--wco-duck-n, 1) * var(--i, 0) * -1);
   will-change: transform;
 }
 
 @keyframes wco-duck-walk {
-  0%        { transform: translateX(-46px); }
-  74%, 100% { transform: translateX(calc(100vw + 46px)); }
+  from { transform: translateX(-40px); }
+  to   { transform: translateX(var(--wco-duck-span, 100vw)); }
 }
 
 .wco-duck-art {
   height: 20px;
   width: auto;
   transform-origin: 50% 85%;
-  animation: wco-duck-waddle 0.84s ease-in-out infinite;
+  animation: wco-duck-waddle var(--wco-duck-waddle-dur) ease-in-out infinite;
+  /* Knock each duck's waddle out of phase — identical timing across three
+     ducks reads as one sprite copy-pasted rather than three animals. */
+  animation-delay: calc(var(--wco-duck-waddle-dur) * var(--i, 0) * -0.37);
 }
 
 @keyframes wco-duck-waddle {
@@ -214,6 +228,11 @@ body {
   .wco-badge {
     animation: none;
   }
-  /* Still show the duck — just standing there instead of walking. */
-  .wco-duck { transform: translateX(45vw); }
+  /* Still show the ducks — just standing there, spread out, instead of
+     walking (and stacked on top of each other at the same offset). */
+  .wco-duck {
+    transform: translateX(
+      calc(var(--wco-duck-span, 100vw) / var(--wco-duck-n, 1) * (var(--i, 0) + 0.5))
+    );
+  }
 }
