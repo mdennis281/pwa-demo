@@ -68,6 +68,15 @@ export const DEMOS: DemoSpec[] = [
     capabilities: ['wco'],
     component: lazy(() => import('./install-pwa/wco')),
   },
+  {
+    id: 'wco-takeover',
+    title: 'Take over the titlebar',
+    blurb: 'Repaint the app\'s own titlebar — alert controls, a rainbow, a duck.',
+    type: 'modal',
+    category: 'Install & PWA',
+    capabilities: ['wco'],
+    component: lazy(() => import('./install-pwa/wco-takeover')),
+  },
 
   // ─── Notifications ─────────────────────────────────────────────
   {

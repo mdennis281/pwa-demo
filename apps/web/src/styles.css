@@ -71,3 +71,149 @@ body {
 .pl-safe { padding-left: max(env(safe-area-inset-left), 0px); }
 .pr-safe { padding-right: max(env(safe-area-inset-right), 0px); }
 .px-safe { padding-left: max(env(safe-area-inset-left), 0px); padding-right: max(env(safe-area-inset-right), 0px); }
+
+/* ── Titlebar takeover (demos/install-pwa/wco-takeover) ───────────────────
+   Effects the demo paints into the WCO strip. They live here rather than in
+   the component so the whole strip — hue sweep, walk cycle, badge pulse —
+   animates on the compositor without React re-rendering 60x a second. */
+
+/* Popovers dropped out of the titlebar hang below the strip, over the page.
+   The strip is a drag region that also kills text selection, so anything
+   that behaves like a normal menu has to opt back out of both. */
+.wco-popover {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  text-shadow: none;
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* Button 2 — moving rainbow.
+   The band is twice the strip wide and tiles one full hue sweep per strip
+   width, so translating it exactly one tile left loops seamlessly. A dark
+   scrim rides on top of the same element (first background layer wins) to
+   keep the app's own chrome legible against the color. */
+.wco-rainbow {
+  color: #f8fafc;
+  text-shadow: 0 1px 2px rgb(2 6 23 / 0.65);
+}
+
+.wco-rainbow-band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 200%;
+  z-index: -1;
+  background-image:
+    linear-gradient(to bottom, rgb(2 6 23 / 0.3), rgb(2 6 23 / 0.55)),
+    linear-gradient(
+      90deg,
+      hsl(0 80% 58%), hsl(45 80% 58%), hsl(90 80% 58%), hsl(135 80% 58%),
+      hsl(180 80% 58%), hsl(225 80% 58%), hsl(270 80% 58%), hsl(315 80% 58%),
+      hsl(360 80% 58%)
+    );
+  background-size: 100% 100%, 50% 100%;
+  background-repeat: no-repeat, repeat-x;
+  animation: wco-rainbow-pan 9s linear infinite;
+  will-change: transform;
+}
+
+@keyframes wco-rainbow-pan {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(-50%, 0, 0); }
+}
+
+/* Button 3 — the duck.
+   Three stacked motions: the track clips it to the strip, .wco-duck carries
+   it across, and .wco-duck-art rocks side to side while the legs alternate.
+   It holds offscreen for the tail of the cycle so passes are spaced out. */
+.wco-duck-track {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.wco-duck {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  animation: wco-duck-walk 12s linear infinite;
+  will-change: transform;
+}
+
+@keyframes wco-duck-walk {
+  0%        { transform: translateX(-46px); }
+  74%, 100% { transform: translateX(calc(100vw + 46px)); }
+}
+
+.wco-duck-art {
+  height: 20px;
+  width: auto;
+  transform-origin: 50% 85%;
+  animation: wco-duck-waddle 0.84s ease-in-out infinite;
+}
+
+@keyframes wco-duck-waddle {
+  0%, 100% { transform: translateY(0) rotate(-3deg); }
+  50%      { transform: translateY(-1.5px) rotate(3deg); }
+}
+
+.wco-duck-leg {
+  animation: wco-duck-step 0.42s ease-in-out infinite;
+}
+
+.wco-duck-leg--far {
+  animation-delay: -0.21s;
+}
+
+@keyframes wco-duck-step {
+  0%, 100% { transform: translateX(2.5px); }
+  50%      { transform: translateX(-2.5px); }
+}
+
+/* Button 1 — the alert bell. Rings for a beat, then rests. */
+.wco-bell {
+  transform-origin: 50% 15%;
+  animation: wco-bell-ring 3.2s ease-in-out infinite;
+}
+
+@keyframes wco-bell-ring {
+  0%, 62%, 82%, 100% { transform: rotate(0deg); }
+  66% { transform: rotate(13deg); }
+  70% { transform: rotate(-11deg); }
+  74% { transform: rotate(8deg); }
+  78% { transform: rotate(-5deg); }
+}
+
+.wco-badge {
+  animation: wco-badge-pulse 2.4s ease-out infinite;
+}
+
+@keyframes wco-badge-pulse {
+  0%   { box-shadow: 0 0 0 0 rgb(244 63 94 / 0.7); }
+  70%  { box-shadow: 0 0 0 6px rgb(244 63 94 / 0); }
+  100% { box-shadow: 0 0 0 0 rgb(244 63 94 / 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wco-rainbow-band,
+  .wco-duck,
+  .wco-duck-art,
+  .wco-duck-leg,
+  .wco-bell,
+  .wco-badge {
+    animation: none;
+  }
+  /* Still show the duck — just standing there instead of walking. */
+  .wco-duck { transform: translateX(45vw); }
+}
