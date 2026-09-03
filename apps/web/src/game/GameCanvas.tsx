@@ -292,7 +292,16 @@ export default function GameCanvas({
         never start a text selection on the HUD / overlays sitting over the
         canvas. Editable form fields (admin menu) keep working — user-select:none
         does not apply to editing hosts. */}
-    <div data-no-pull-refresh className="fixed inset-0 bg-slate-950 z-40 select-none">
+    {/* Starts below the WCO titlebar strip instead of at inset-0. The play
+        screen is fixed to the viewport, so it escapes the app shell's
+        pt-[var(--wco-h)] — full-bleed, the HUD's top-4 row (stats, roster,
+        settings/admin/leave) lands under the app-drawn titlebar and the OS
+        window buttons. --wco-h is 0px in every other display mode, so this is
+        the usual full-viewport overlay everywhere else. */}
+    <div
+      data-no-pull-refresh
+      className="fixed inset-x-0 bottom-0 top-[var(--wco-h)] bg-slate-950 z-40 select-none"
+    >
       <Canvas
         shadows={shadowsOn}
         // Cap pixel ratio: retina screens otherwise render at 2-3x, which
