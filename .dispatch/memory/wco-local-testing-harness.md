@@ -2,7 +2,7 @@
 name: wco-local-testing-harness
 description: How to test Window Controls Overlay features locally without installing the PWA — fake it with a matchMedia override plus injected env() geometry
 type: project
-updatedAt: 1788371259407
+updatedAt: 1788451379195
 ---
 Window Controls Overlay only activates in an installed desktop PWA whose user has clicked the ⌃ "Hide title bar" button, so WCO features (`components/WcoTitlebar`, `lib/wco`, `lib/wcoTakeover`, the `wco` and `wco-takeover` demos) can't be exercised in a plain dev tab. To test them in a headless/driven browser:
 
@@ -16,6 +16,11 @@ Window Controls Overlay only activates in an installed desktop PWA whose user ha
 
 Gotchas:
 - Do NOT append the style inside the init script — `document.documentElement` is null that early, the append throws, and everything after it in the script silently never runs.
+- `initScript` applies only to **that one navigation**. `navigate_page({ type: 'reload' })` drops it and the fake WCO silently disappears (`.wco-titlebar` stops existing). To reload, re-navigate by URL with the initScript again, then re-inject the CSS.
 - `navigator.windowControlsOverlay` is genuinely present in ordinary Chromium desktop tabs, so it is useless as an "is WCO on" signal and needs no stubbing. `lib/wco`'s `wcoStatus()` distinguishes `tab` from `inactive` for exactly this reason.
 
+To reach the Tower Climb play screen (needed to check in-game overlays), the API must be up — see [[yesweb-local-dev-startup]]; then Quick Play on `/d/tower-climb` enters the dedicated lobby with no second player required.
+
 **Why:** without this, verifying anything in the titlebar strip means manually installing the PWA and toggling the overlay by hand every time.
+
+Related: [[wco-fullscreen-overlay-rule]].
